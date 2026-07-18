@@ -1,0 +1,22 @@
+# Editor and operating-system files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Neovim runtime files
+.nvimlog
+doc/tags
+
+# Local environment and diagnostics
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+tmp/
+
+# Local model artifacts must never enter the plugin repository
+models/
+*.gguf
+*.safetensors
