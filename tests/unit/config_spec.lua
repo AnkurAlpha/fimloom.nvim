@@ -101,6 +101,10 @@ return function(t)
     t.assert_error(function()
       config.resolve({ completion = { generation = { temperature = 3 } } })
     end, "completion.generation.temperature must be between")
+
+    t.assert_error(function()
+      config.resolve({ completion = { preview = { max_lines = 0 } } })
+    end, "completion.preview.max_lines must be between")
   end)
 
   t.test("nested configuration sections must remain tables", function()
@@ -111,6 +115,28 @@ return function(t)
     t.assert_error(function()
       config.resolve({ server = "ollama serve" })
     end, "server must be a table")
+  end)
+
+  t.test("context filetype lists are validated and copied", function()
+    local options = {
+      completion = {
+        context = {
+          filetypes = {
+            allow = { "lua", "rust" },
+            deny = { "markdown" },
+          },
+        },
+      },
+    }
+    local resolved = config.resolve(options)
+
+    options.completion.context.filetypes.allow[1] = "changed"
+    t.assert_deep_equal(resolved.completion.context.filetypes.allow, { "lua", "rust" })
+    t.assert_deep_equal(resolved.completion.context.filetypes.deny, { "markdown" })
+
+    t.assert_error(function()
+      config.resolve({ completion = { context = { filetypes = { allow = "lua" } } } })
+    end, "completion.context.filetypes.allow must be a list of strings")
   end)
 
   t.test("keymaps can be disabled explicitly", function()

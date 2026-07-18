@@ -12,10 +12,18 @@ local defaults = {
     context = {
       max_prefix_bytes = 12000,
       max_suffix_bytes = 4000,
+      filetypes = {
+        allow = {},
+        deny = {},
+      },
     },
     generation = {
       max_tokens = 128,
       temperature = 0.2,
+    },
+    preview = {
+      max_bytes = 16 * 1024,
+      max_lines = 100,
     },
   },
   transport = {
@@ -120,6 +128,16 @@ local function validate_keymap(path, value)
   validate_non_empty_string(path, value)
 end
 
+local function validate_string_list(path, value)
+  if type(value) ~= "table" or not is_list(value) then
+    fail(path, "must be a list of strings")
+  end
+
+  for index, item in ipairs(value) do
+    validate_non_empty_string(string.format("%s[%d]", path, index), item)
+  end
+end
+
 local function validate(resolved)
   validate_boolean("enabled", resolved.enabled)
 
@@ -155,6 +173,15 @@ local function validate(resolved)
     0,
     1024 * 1024
   )
+  validate_table("completion.context.filetypes", resolved.completion.context.filetypes)
+  validate_string_list(
+    "completion.context.filetypes.allow",
+    resolved.completion.context.filetypes.allow
+  )
+  validate_string_list(
+    "completion.context.filetypes.deny",
+    resolved.completion.context.filetypes.deny
+  )
   validate_integer(
     "completion.generation.max_tokens",
     resolved.completion.generation.max_tokens,
@@ -167,6 +194,14 @@ local function validate(resolved)
     0,
     2
   )
+  validate_table("completion.preview", resolved.completion.preview)
+  validate_integer(
+    "completion.preview.max_bytes",
+    resolved.completion.preview.max_bytes,
+    1,
+    1024 * 1024
+  )
+  validate_integer("completion.preview.max_lines", resolved.completion.preview.max_lines, 1, 1000)
 
   validate_table("transport", resolved.transport)
   validate_integer("transport.connect_timeout_ms", resolved.transport.connect_timeout_ms, 1, 60000)

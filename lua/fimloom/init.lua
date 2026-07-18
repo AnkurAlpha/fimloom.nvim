@@ -1,18 +1,21 @@
 local config = require("fimloom.config")
+local completion = require("fimloom.completion")
 local state = require("fimloom.state")
 
 local M = {}
 
 ---Configure FIMLoom for the current Neovim instance.
----
----Configuration is resolved and stored without starting a model server or
----registering completion events. Those side effects are introduced in later
----implementation stages.
 ---@param options? table
 ---@return table module
 function M.setup(options)
   local resolved = config.resolve(options)
   state.configure(resolved)
+
+  if resolved.enabled then
+    completion.setup(resolved)
+  else
+    completion.shutdown()
+  end
 
   return M
 end
@@ -33,6 +36,43 @@ end
 ---@return table
 function M.get_config()
   return state.get_config()
+end
+
+---Enable inline completion after setup.
+function M.enable()
+  if not state.is_configured() then
+    error("fimloom.enable: setup must be called first", 2)
+  end
+
+  state.set_enabled(true)
+  completion.setup(state.get_config())
+end
+
+---Disable inline completion and clear pending work.
+function M.disable()
+  completion.shutdown()
+  if state.is_configured() then
+    state.set_enabled(false)
+  end
+end
+
+---Request an inline completion without waiting for the debounce timer.
+---@return boolean started
+---@return string? reason
+function M.complete()
+  return completion.trigger({ manual = true })
+end
+
+---Accept the currently displayed inline suggestion.
+---@return boolean accepted
+function M.accept()
+  return completion.accept()
+end
+
+---Dismiss the currently displayed suggestion and pending work.
+---@return boolean dismissed
+function M.dismiss()
+  return completion.dismiss()
 end
 
 return M
