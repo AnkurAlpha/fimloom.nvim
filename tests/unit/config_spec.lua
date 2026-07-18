@@ -9,6 +9,8 @@ return function(t)
     t.assert_equal(first.endpoint, "http://127.0.0.1:11434")
     t.assert_equal(first.completion.mode, "fim")
     t.assert_equal(first.server.auto_start, false)
+    t.assert_equal(first.log.level, "warn")
+    t.assert_equal(first.log.file, false)
 
     first.completion.context.max_prefix_bytes = 1
     t.assert_equal(second.completion.context.max_prefix_bytes, 12000)
@@ -65,6 +67,10 @@ return function(t)
     t.assert_error(function()
       config.resolve({ endpoint = "http://127.0.0.1:11434?token=secret" })
     end, "endpoint must not contain a query string or fragment")
+
+    t.assert_error(function()
+      config.resolve({ endpoint = "http://secret@127.0.0.1:11434" })
+    end, "endpoint must not contain embedded user information")
   end)
 
   t.test("model must be non-empty when provided", function()
@@ -107,6 +113,31 @@ return function(t)
       },
     })
     t.assert_equal(type(resolved.server.command), "function")
+  end)
+
+  t.test("diagnostic configuration is validated", function()
+    local resolved = config.resolve({
+      log = {
+        level = "debug",
+        file = "~/.local/state/nvim/fimloom.log",
+        max_entries = 50,
+        max_file_bytes = 4096,
+        notify = false,
+        notify_cooldown_ms = 100,
+      },
+    })
+    t.assert_equal(resolved.log.level, "debug")
+    t.assert_equal(resolved.log.file, "~/.local/state/nvim/fimloom.log")
+
+    t.assert_error(function()
+      config.resolve({ log = { level = "trace" } })
+    end, "log.level must be one of")
+    t.assert_error(function()
+      config.resolve({ log = { file = {} } })
+    end, "log.file must be a non-empty string")
+    t.assert_error(function()
+      config.resolve({ log = { notify_cooldown_ms = -1 } })
+    end, "log.notify_cooldown_ms must be between")
   end)
 
   t.test("numeric completion options enforce safe ranges", function()

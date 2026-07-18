@@ -37,6 +37,14 @@ local defaults = {
     startup_timeout_ms = 30000,
     startup_poll_interval_ms = 250,
   },
+  log = {
+    level = "warn",
+    max_entries = 200,
+    file = false,
+    max_file_bytes = 512 * 1024,
+    notify = true,
+    notify_cooldown_ms = 5000,
+  },
   keymaps = {
     accept = "<Tab>",
     dismiss = "<C-]>",
@@ -98,6 +106,11 @@ local function normalize_endpoint(endpoint)
     fail("endpoint", "must not contain a query string or fragment")
   end
 
+  local authority = remainder:match("^([^/]+)") or ""
+  if authority:find("@", 1, true) then
+    fail("endpoint", "must not contain embedded user information")
+  end
+
   return endpoint:gsub("/+$", "")
 end
 
@@ -136,6 +149,14 @@ local function validate_string_list(path, value)
   for index, item in ipairs(value) do
     validate_non_empty_string(string.format("%s[%d]", path, index), item)
   end
+end
+
+local function validate_log_file(value)
+  if type(value) == "boolean" then
+    return
+  end
+
+  validate_non_empty_string("log.file", value)
 end
 
 local function validate(resolved)
@@ -227,6 +248,18 @@ local function validate(resolved)
   if resolved.server.auto_start and resolved.server.command == nil then
     fail("server.command", "must be configured when server.auto_start is true")
   end
+
+  validate_table("log", resolved.log)
+  if
+    not ({ off = true, error = true, warn = true, info = true, debug = true })[resolved.log.level]
+  then
+    fail("log.level", 'must be one of "off", "error", "warn", "info", or "debug"')
+  end
+  validate_integer("log.max_entries", resolved.log.max_entries, 1, 1000)
+  validate_log_file(resolved.log.file)
+  validate_integer("log.max_file_bytes", resolved.log.max_file_bytes, 1024, 16 * 1024 * 1024)
+  validate_boolean("log.notify", resolved.log.notify)
+  validate_integer("log.notify_cooldown_ms", resolved.log.notify_cooldown_ms, 0, 600000)
 
   validate_table("keymaps", resolved.keymaps)
   validate_keymap("keymaps.accept", resolved.keymaps.accept)

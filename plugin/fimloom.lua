@@ -3,3 +3,5 @@ if vim.g.loaded_fimloom == 1 then
 end
 
 vim.g.loaded_fimloom = 1
+
+require("fimloom.commands").setup()

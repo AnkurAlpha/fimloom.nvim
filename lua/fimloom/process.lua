@@ -1,3 +1,4 @@
+local log = require("fimloom.log")
 local providers_module = require("fimloom.providers")
 local state = require("fimloom.state")
 
@@ -167,6 +168,7 @@ local function fail_owned(kind, message)
     message = message,
   }
   publish("failed")
+  log.notify("server:" .. kind, string.format("FIMLoom server failed: %s", message), "warn")
 end
 
 local probe_health
@@ -197,6 +199,12 @@ local function mark_ready(token)
   last_error = nil
   exit_code = nil
   publish("ready")
+  log.write("info", "server_ready", {
+    provider = runtime_config.provider,
+    endpoint = runtime_config.endpoint,
+    owned = owned,
+    pid = pid,
+  })
 end
 
 local function on_job_exit(token, exited_job, code)
@@ -216,6 +224,11 @@ local function on_job_exit(token, exited_job, code)
       message = string.format("managed server process exited with code %d", code),
     }
     publish("failed")
+    log.notify(
+      "server:process_exit",
+      string.format("FIMLoom server process exited with code %d", code),
+      "warn"
+    )
   end)
 end
 
@@ -264,6 +277,11 @@ local function start_job(token)
     pid = process_id
   end
   publish("starting")
+  log.write("info", "server_started", {
+    provider = runtime_config.provider,
+    endpoint = runtime_config.endpoint,
+    pid = pid,
+  })
 
   local timer
   timer = dependencies.defer_fn(function()
@@ -304,6 +322,11 @@ local function handle_health(token, initial, result)
         message = error_message(result),
       }
       publish("failed")
+      log.notify(
+        "server:unavailable",
+        string.format("FIMLoom server is unavailable: %s", last_error.message),
+        "warn"
+      )
     end
     return
   end
@@ -413,6 +436,10 @@ function M.start()
 
   local token = generation
   probe_health(token, true)
+  log.write("debug", "server_probe_started", {
+    provider = runtime_config.provider,
+    endpoint = runtime_config.endpoint,
+  })
   return true
 end
 
@@ -428,6 +455,11 @@ function M.stop()
   last_error = nil
   exit_code = nil
   publish("stopped")
+  if stopped_job or had_work then
+    log.write("info", "server_stopped", {
+      provider = runtime_config and runtime_config.provider or nil,
+    })
+  end
   return stopped_job or had_work
 end
 
@@ -448,6 +480,12 @@ end
 ---@return table
 function M.status()
   return state.get_server()
+end
+
+---Return whether lifecycle setup has retained a resolved configuration.
+---@return boolean
+function M.is_configured()
+  return runtime_config ~= nil
 end
 
 return M

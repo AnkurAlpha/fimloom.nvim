@@ -1,4 +1,5 @@
 local context_module = require("fimloom.context")
+local log = require("fimloom.log")
 local providers_module = require("fimloom.providers")
 local render_module = require("fimloom.render")
 local state = require("fimloom.state")
@@ -138,8 +139,23 @@ local function finish_request(request_id, captured, response)
     return
   end
 
+  local manual = active_request.manual
   active_request = nil
-  if not state.is_enabled() or not response or not response.ok then
+  if not state.is_enabled() then
+    dependencies.render.clear()
+    return
+  end
+
+  if not response or not response.ok then
+    local kind = response and response.error and response.error.kind or "unknown"
+    local message = response and response.error and response.error.message
+      or "completion request failed"
+    log.notify(
+      "completion:" .. kind,
+      string.format("FIMLoom completion failed: %s", tostring(message)),
+      "warn",
+      { force = manual }
+    )
     dependencies.render.clear()
     return
   end
@@ -179,6 +195,7 @@ local function request_completion(manual)
     id = request_id,
     context = captured,
     handle = nil,
+    manual = manual == true,
   }
   active_request = record
 
@@ -197,6 +214,12 @@ local function request_completion(manual)
     if active_request == record then
       active_request = nil
     end
+    log.notify(
+      "completion:start",
+      string.format("FIMLoom could not start a completion request: %s", tostring(handle_or_error)),
+      "warn",
+      { force = manual == true }
+    )
     return false, tostring(handle_or_error)
   end
 

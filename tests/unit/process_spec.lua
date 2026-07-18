@@ -1,5 +1,6 @@
 return function(t)
   local config = require("fimloom.config")
+  local log = require("fimloom.log")
   local process = require("fimloom.process")
   local state = require("fimloom.state")
 
@@ -74,9 +75,11 @@ return function(t)
 
   local function with_runtime(callback)
     process.shutdown()
+    log.shutdown()
     state._reset()
     local ok, error_message = xpcall(callback, debug.traceback)
     process.shutdown()
+    log.shutdown()
     state._reset()
     if not ok then
       error(error_message)

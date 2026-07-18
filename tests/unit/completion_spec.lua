@@ -1,6 +1,7 @@
 return function(t)
   local completion = require("fimloom.completion")
   local config = require("fimloom.config")
+  local log = require("fimloom.log")
   local render = require("fimloom.render")
   local state = require("fimloom.state")
 
@@ -32,6 +33,7 @@ return function(t)
 
   local function with_runtime(options, lines, callback)
     completion.shutdown()
+    log.shutdown()
     render.clear()
     state._reset()
 
@@ -59,6 +61,7 @@ return function(t)
     end, debug.traceback)
 
     completion.shutdown()
+    log.shutdown()
     render.clear()
     vim.wo[window].virtualedit = previous_virtualedit
     if vim.api.nvim_buf_is_valid(previous) then
