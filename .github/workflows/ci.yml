@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: StyLua
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Check formatting
+        uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 2.5.2
+          args: --check lua plugin tests
+
+  test:
+    name: Neovim ${{ matrix.neovim }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        neovim:
+          - v0.10.4
+          - stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+      - name: Show versions
+        run: |
+          nvim --version
+          curl --version | head -n 1
+      - name: Check whitespace
+        run: |
+          if grep -RInE '[[:blank:]]+$' --exclude-dir=.git .; then
+            echo "Trailing whitespace found"
+            exit 1
+          fi
+      - name: Run headless tests
+        run: nvim --headless --clean -u tests/minimal_init.lua -l tests/run.lua
+
+  documentation:
+    name: Vim help
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - name: Generate tags and open help
+        run: |
+          nvim --headless --clean -u tests/minimal_init.lua \
+            -c "helptags doc" \
+            -c "silent help fimloom" \
+            -c "quitall"
+          test -s doc/tags
+          rm -f doc/tags

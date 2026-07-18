@@ -1,0 +1,546 @@
+*fimloom.txt*	FIMLoom.nvim - local-first inline code completion
+
+=============================================================================
+CONTENTS                                                     *fimloom-contents*
+
+1. Introduction..............................................|fimloom|
+2. Requirements..............................................|fimloom-requirements|
+3. Installation..............................................|fimloom-installation|
+4. Providers.................................................|fimloom-providers|
+5. Configuration.............................................|fimloom-configuration|
+6. Commands..................................................|fimloom-commands|
+7. Keymaps...................................................|fimloom-keymaps|
+8. Server lifecycle..........................................|fimloom-lifecycle|
+9. Privacy and diagnostics...................................|fimloom-privacy|
+10. Troubleshooting..........................................|fimloom-troubleshooting|
+11. Lua API..................................................|fimloom-api|
+12. Development..............................................|fimloom-development|
+13. License..................................................|fimloom-license|
+
+=============================================================================
+1. Introduction                                                    *fimloom*
+
+FIMLoom.nvim provides asynchronous fill-in-the-middle (FIM) code completion
+through a user-configured Ollama or llama.cpp endpoint. It captures bounded
+text before and after the cursor, requests a completion, and displays the
+result as extmark ghost text. The buffer changes only when a suggestion is
+accepted.
+
+FIMLoom is local-first. It requires no cloud service, account, API key,
+telemetry, or automatic model download. A non-loopback endpoint is supported,
+but buffer context then leaves the local machine.
+
+The `v0.1.0` release intentionally excludes chat, agents, repository indexing,
+cross-file context, streaming, and completion-framework integrations.
+
+Completion flow:
+
+1. An Insert-mode text change starts a debounce timer.
+2. Older work is cancelled.
+3. UTF-8-safe bounded prefix and suffix context is captured.
+4. `curl` performs a native provider request through `vim.system()`.
+5. A response is rejected if the editor anchor has changed.
+6. Valid text is previewed and may be accepted or dismissed.
+
+=============================================================================
+2. Requirements                                       *fimloom-requirements*
+
+- Neovim 0.10 or newer.
+- `curl` in `$PATH`.
+- Ollama or `llama-server` from llama.cpp.
+- A model capable of fill-in-the-middle code generation.
+- Linux or macOS for managed-process guarantees in `v0.1.0`.
+
+FIM-trained base/code-completion models generally work better for inline
+completion than chat or instruction-only models.
+
+=============================================================================
+3. Installation                                       *fimloom-installation*
+
+LAZY.NVIM ~
+
+Install the public repository with lazy.nvim: >lua
+
+    {
+      "AnkurAlpha/fimloom.nvim",
+      event = "InsertEnter",
+      cmd = "FIMLoom",
+      main = "fimloom",
+      opts = {
+        provider = "ollama",
+        model = "qwen2.5-coder:1.5b-base",
+      },
+    }
+<
+
+`opts` is passed to `require("fimloom").setup(opts)` by lazy.nvim.
+
+LOCAL CHECKOUT ~
+
+For development, use the repository directory: >lua
+
+    {
+      dir = "/home/ankur/git_work/github/fimloom.nvim",
+      event = "InsertEnter",
+      cmd = "FIMLoom",
+      main = "fimloom",
+      opts = {
+        provider = "ollama",
+        model = "qwen2.5-coder:1.5b-base",
+      },
+    }
+<
+
+With lazy loading, execute `:FIMLoom status` or enter Insert mode before
+running `:checkhealth fimloom`.
+
+=============================================================================
+4. Providers                                             *fimloom-providers*
+
+OLLAMA                                                   *fimloom-ollama*
+
+Default endpoint: `http://127.0.0.1:11434`
+Health endpoint: `GET /api/tags`
+Completion endpoint: `POST /api/generate`
+
+FIMLoom does not pull models. Install one explicitly, for example: >sh
+
+    ollama pull qwen2.5-coder:1.5b-base
+<
+
+Use an existing Ollama service: >lua
+
+    require("fimloom").setup({
+      provider = "ollama",
+      endpoint = "http://127.0.0.1:11434",
+      model = "qwen2.5-coder:1.5b-base",
+      server = {
+        auto_start = false,
+      },
+    })
+<
+
+Or let FIMLoom start Ollama when the endpoint is unhealthy: >lua
+
+    server = {
+      auto_start = true,
+      auto_stop = true,
+      command = { "ollama", "serve" },
+    }
+<
+
+LLAMA.CPP                                               *fimloom-llamacpp*
+
+Default endpoint: `http://127.0.0.1:8012`
+Health endpoint: `GET /health`
+Completion endpoint: `POST /infill`
+
+Install `llama-server` and obtain a FIM-capable GGUF model separately: >lua
+
+    require("fimloom").setup({
+      provider = "llamacpp",
+      endpoint = "http://127.0.0.1:8012",
+      model = "/home/ankur/models/code-model.gguf",
+      server = {
+        auto_start = true,
+        auto_stop = true,
+        startup_timeout_ms = 60000,
+        command = function(config)
+          return {
+            "llama-server",
+            "--model", config.model,
+            "--host", "127.0.0.1",
+            "--port", "8012",
+            "--ctx-size", "8192",
+          }
+        end,
+      },
+    })
+<
+
+The endpoint port and server port must match. When llama.cpp is started
+outside Neovim, `model` is diagnostic metadata; the external server controls
+the model that is loaded.
+
+=============================================================================
+5. Configuration                                     *fimloom-configuration*
+
+Complete defaults: >lua
+
+    {
+      enabled = true,
+      provider = "ollama",
+      endpoint = nil,
+      model = nil,
+
+      completion = {
+        mode = "fim",
+        auto_trigger = true,
+        debounce_ms = 180,
+        context = {
+          max_prefix_bytes = 12000,
+          max_suffix_bytes = 4000,
+          filetypes = {
+            allow = {},
+            deny = {},
+          },
+        },
+        generation = {
+          max_tokens = 128,
+          temperature = 0.2,
+        },
+        preview = {
+          max_bytes = 16 * 1024,
+          max_lines = 100,
+        },
+      },
+
+      transport = {
+        connect_timeout_ms = 1000,
+        request_timeout_ms = 15000,
+        max_response_bytes = 1024 * 1024,
+      },
+
+      server = {
+        auto_start = false,
+        auto_stop = true,
+        command = nil,
+        startup_timeout_ms = 30000,
+        startup_poll_interval_ms = 250,
+      },
+
+      log = {
+        level = "warn",
+        max_entries = 200,
+        file = false,
+        max_file_bytes = 512 * 1024,
+        notify = true,
+        notify_cooldown_ms = 5000,
+      },
+
+      keymaps = {
+        accept = "<Tab>",
+        dismiss = "<C-]>",
+        manual = "<M-\\>",
+      },
+    }
+<
+
+`endpoint` is resolved from the provider when omitted. URLs may use HTTP or
+HTTPS and custom ports. Queries, fragments, whitespace, and embedded user
+information are rejected.
+
+COMPLETION ~
+
+`completion.mode`
+    Only `"fim"` is supported in `v0.1.0`.
+
+`completion.auto_trigger`
+    Schedule work after Insert-mode text changes.
+
+`completion.debounce_ms`
+    Delay after typing. Zero requests immediately.
+
+`completion.context.max_prefix_bytes`
+`completion.context.max_suffix_bytes`
+    UTF-8-safe bounds for text around the cursor.
+
+`completion.context.filetypes.allow`
+    If non-empty, only exact listed filetypes are eligible.
+
+`completion.context.filetypes.deny`
+    Exact filetypes to reject. Deny wins over allow.
+
+`completion.generation.max_tokens`
+    Provider generation limit.
+
+`completion.generation.temperature`
+    Sampling temperature in the range 0 to 2.
+
+`completion.preview.max_bytes`
+`completion.preview.max_lines`
+    Hard bounds applied before ghost text is rendered.
+
+TRANSPORT ~
+
+`transport.connect_timeout_ms`
+    `curl` connection timeout.
+
+`transport.request_timeout_ms`
+    Whole-request timeout.
+
+`transport.max_response_bytes`
+    Maximum accepted HTTP response size.
+
+SERVER ~
+
+`server.auto_start`
+    Start `server.command` only after an unsuccessful initial probe. A command
+    is required when this option is true.
+
+`server.auto_stop`
+    Stop an owned process during normal `VimLeavePre`. When false, the job is
+    started detached and is left running on exit.
+
+`server.command`
+    A non-empty argv list, a function returning one, or nil. Shell strings are
+    rejected. A function receives a defensive copy of resolved configuration.
+
+`server.startup_timeout_ms`
+    Hard readiness deadline for an owned process.
+
+`server.startup_poll_interval_ms`
+    Delay between asynchronous readiness probes.
+
+DIAGNOSTICS ~
+
+`log.level`
+    One of `"off"`, `"error"`, `"warn"`, `"info"`, or `"debug"`.
+
+`log.max_entries`
+    Number of privacy-filtered in-memory entries.
+
+`log.file`
+    False, true for Neovim's log directory, or a custom path.
+
+`log.max_file_bytes`
+    Bound for optional JSONL persistence.
+
+`log.notify`
+    Enable automatic notifications. Manual command results still display.
+
+`log.notify_cooldown_ms`
+    Per-failure-key automatic notification cooldown.
+
+Configuration is deep-copied and validated. User tables are not modified.
+Unmodifiable, readonly, binary, unloaded, and special `buftype` buffers are
+not eligible for context capture.
+
+=============================================================================
+6. Commands                                               *fimloom-commands*
+
+FIMLoom defines one user command with subcommand completion: *:FIMLoom*
+
+`:FIMLoom complete`
+    Request a completion immediately.
+
+`:FIMLoom accept`
+    Accept the current suggestion.
+
+`:FIMLoom dismiss`
+    Cancel pending work and clear the suggestion.
+
+`:FIMLoom enable`
+    Enable completion and lifecycle handling after setup.
+
+`:FIMLoom disable`
+    Disable completion, cancel work, and stop owned server work.
+
+`:FIMLoom toggle`
+    Toggle the enabled state.
+
+`:FIMLoom start`
+    Probe readiness and start the configured server if needed.
+
+`:FIMLoom stop`
+    Stop only work owned by this Neovim instance.
+
+`:FIMLoom status`
+    Show concise privacy-safe runtime status.
+
+=============================================================================
+7. Keymaps                                               *fimloom-keymaps*
+
+Default Insert-mode mappings:
+
+`<Tab>`
+    Accept visible ghost text. Otherwise pass through Tab.
+
+`CTRL-]`
+    Dismiss a suggestion or pending work. Otherwise pass through the key.
+
+`<M-\>`
+    Request a completion manually.
+
+Each value under `keymaps` may be changed or set to false. FIMLoom installs a
+mapping only when the exact Insert-mode key is free. Existing mappings are not
+overwritten. Automatic requests pause while the popup menu is visible.
+
+Some terminals do not transmit `<M-\>` distinctly. Choose another manual
+mapping when needed.
+
+=============================================================================
+8. Server lifecycle                                     *fimloom-lifecycle*
+
+Setup performs an asynchronous provider health probe.
+
+- A healthy pre-existing endpoint becomes ready but remains unowned.
+- An unhealthy endpoint is reported when `auto_start` is false.
+- With `auto_start` true, validated argv starts through Neovim job control.
+- The owned process is polled until ready or until the hard deadline.
+- Early exit or timeout cancels polling and stops the owned job.
+- `:FIMLoom stop` never stops an external/unowned server.
+- `auto_stop` true stops an owned process on normal `VimLeavePre`.
+- `auto_stop` false starts it detached and leaves it running on exit.
+
+Disabling or reconfiguring FIMLoom tears down work owned by the current
+instance. Cleanup cannot be guaranteed after `SIGKILL`, a Neovim crash, kernel
+failure, or power loss.
+
+`v0.1.0` has no lease shared across multiple Neovim processes. Run a shared
+server externally and use `auto_start = false` or `auto_stop = false`.
+
+=============================================================================
+9. Privacy and diagnostics                                 *fimloom-privacy*
+
+Built-in provider requests contain bounded prefix/suffix buffer text and
+generation parameters. They are sent only to the configured endpoint.
+
+Loopback endpoints (`127.0.0.1`, `localhost`, or `[::1]`) keep HTTP traffic on
+the machine. A different host sends context to that host and causes a health
+warning.
+
+There is no telemetry, account, API key, cloud provider, repository indexing,
+or automatic model download. Persistent diagnostics are disabled by default.
+
+Diagnostic fields named `prefix`, `suffix`, `prompt`, `body`, `response`,
+`text`, and other source-bearing keys are redacted. Records and optional JSONL
+files are bounded. Endpoint, model, process, and error metadata may remain, so
+review a diagnostic file before sharing it.
+
+Enable a temporary local log: >lua
+
+    log = {
+      level = "debug",
+      file = true,
+    }
+<
+
+Use `:FIMLoom status` for safe state metadata and `:checkhealth fimloom` for
+dependency, configuration, provider, ownership, model, and privacy checks.
+
+=============================================================================
+10. Troubleshooting                                *fimloom-troubleshooting*
+
+Always begin with: >vim
+
+    :FIMLoom status
+    :checkhealth fimloom
+<
+
+COMMAND MISSING ~
+
+With lazy.nvim, enter Insert mode, add `cmd = "FIMLoom"`, or execute:
+`:Lazy load fimloom.nvim`.
+
+ENDPOINT UNREACHABLE ~
+
+Confirm the host and port. Native probes are: >sh
+
+    curl http://127.0.0.1:11434/api/tags
+    curl http://127.0.0.1:8012/health
+<
+
+OLLAMA MODEL MISSING ~
+
+Run `ollama list`, install the chosen model explicitly, and make `opts.model`
+match its name.
+
+LLAMA.CPP RETURNS 404 ~
+
+Use the native `llama-server` base URL. Confirm `/health` and `/infill` are
+available and that no extra API path was added to `endpoint`.
+
+NO AUTOMATIC SUGGESTION ~
+
+Check `completion.auto_trigger`, filetype filters, buffer suitability, Insert
+mode, popup-menu visibility, provider health, and request timeout.
+
+SUGGESTION DISAPPEARS ~
+
+Typing, moving the cursor, changing buffers, or leaving Insert mode
+intentionally invalidates stale work.
+
+KEYMAP DOES NOT WORK ~
+
+An existing Insert-mode mapping may already own the key, or the terminal may
+not transmit the Meta combination. Configure a different free mapping.
+
+STARTUP TIMEOUT ~
+
+Increase `server.startup_timeout_ms` and inspect the server outside FIMLoom.
+FIMLoom retains only bounded process diagnostics.
+
+=============================================================================
+11. Lua API                                                   *fimloom-api*
+
+`require("fimloom").setup({options})`              *fimloom.setup()*
+    Resolve configuration and initialize FIMLoom. Returns the module.
+
+`require("fimloom").enable()`                      *fimloom.enable()*
+    Enable completion after successful setup.
+
+`require("fimloom").disable()`                     *fimloom.disable()*
+    Cancel completion and managed server work, then disable the plugin.
+
+`require("fimloom").toggle()`                      *fimloom.toggle()*
+    Toggle state and return the new enabled boolean.
+
+`require("fimloom").complete()`                    *fimloom.complete()*
+    Request a manual completion. Returns `started, reason`.
+
+`require("fimloom").accept()`                      *fimloom.accept()*
+    Accept the suggestion and return whether insertion occurred.
+
+`require("fimloom").dismiss()`                     *fimloom.dismiss()*
+    Cancel work/preview and return whether anything was dismissed.
+
+`require("fimloom").start()`                       *fimloom.start()*
+    Probe/start the configured server. Returns `started, reason`.
+
+`require("fimloom").stop()`                        *fimloom.stop()*
+    Stop only owned server work and return whether work was stopped.
+
+`require("fimloom").status()`                      *fimloom.status()*
+    Return privacy-safe serializable runtime metadata.
+
+`require("fimloom").is_configured()`        *fimloom.is_configured()*
+    Return whether setup completed successfully.
+
+`require("fimloom").is_enabled()`              *fimloom.is_enabled()*
+    Return current enabled state.
+
+`require("fimloom").get_config()`                  *fimloom.get_config()*
+    Return a defensive copy of resolved configuration.
+
+=============================================================================
+12. Development                                       *fimloom-development*
+
+Run all local checks: >sh
+
+    stylua lua plugin tests
+    stylua --check lua plugin tests
+    git diff --check
+    nvim --headless --clean -u tests/minimal_init.lua -l tests/run.lua
+<
+
+Validate help tags: >sh
+
+    nvim --headless --clean -u tests/minimal_init.lua \
+      -c "helptags doc" \
+      -c "silent help fimloom" \
+      -c "quitall"
+    rm -f doc/tags
+<
+
+The automated suite uses a local loopback fixture and does not require or
+download a model. See `CONTRIBUTING.md` for contribution and manual-test rules.
+
+=============================================================================
+13. License                                               *fimloom-license*
+
+FIMLoom.nvim is released under the MIT License.
+
+Copyright (c) Ankur Kumar.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
