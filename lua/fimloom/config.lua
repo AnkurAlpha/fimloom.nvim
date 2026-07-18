@@ -224,6 +224,9 @@ local function validate(resolved)
     10000
   )
   validate_command(resolved.server.command)
+  if resolved.server.auto_start and resolved.server.command == nil then
+    fail("server.command", "must be configured when server.auto_start is true")
+  end
 
   validate_table("keymaps", resolved.keymaps)
   validate_keymap("keymaps.accept", resolved.keymaps.accept)

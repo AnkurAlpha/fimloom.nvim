@@ -93,6 +93,22 @@ return function(t)
     end, "server.command must be a non-empty argument list")
   end)
 
+  t.test("automatic startup requires an explicit command", function()
+    t.assert_error(function()
+      config.resolve({ server = { auto_start = true } })
+    end, "server.command must be configured when server.auto_start is true")
+
+    local resolved = config.resolve({
+      server = {
+        auto_start = true,
+        command = function()
+          return { "ollama", "serve" }
+        end,
+      },
+    })
+    t.assert_equal(type(resolved.server.command), "function")
+  end)
+
   t.test("numeric completion options enforce safe ranges", function()
     t.assert_error(function()
       config.resolve({ completion = { debounce_ms = -1 } })

@@ -1,5 +1,6 @@
 local config = require("fimloom.config")
 local completion = require("fimloom.completion")
+local process = require("fimloom.process")
 local state = require("fimloom.state")
 
 local M = {}
@@ -9,13 +10,15 @@ local M = {}
 ---@return table module
 function M.setup(options)
   local resolved = config.resolve(options)
+
+  completion.shutdown()
+  process.shutdown()
   state.configure(resolved)
 
   if resolved.enabled then
     completion.setup(resolved)
-  else
-    completion.shutdown()
   end
+  process.setup(resolved)
 
   return M
 end
@@ -45,12 +48,15 @@ function M.enable()
   end
 
   state.set_enabled(true)
-  completion.setup(state.get_config())
+  local resolved = state.get_config()
+  completion.setup(resolved)
+  process.setup(resolved)
 end
 
 ---Disable inline completion and clear pending work.
 function M.disable()
   completion.shutdown()
+  process.shutdown()
   if state.is_configured() then
     state.set_enabled(false)
   end

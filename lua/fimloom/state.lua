@@ -1,5 +1,22 @@
 local M = {}
 
+local server_statuses = {
+  unknown = true,
+  starting = true,
+  ready = true,
+  stopped = true,
+  failed = true,
+}
+
+local function initial_server_state()
+  return {
+    status = "unknown",
+    owned = false,
+    stdout_tail = "",
+    stderr_tail = "",
+  }
+end
+
 local function initial_state()
   return {
     configured = false,
@@ -7,10 +24,7 @@ local function initial_state()
     shutting_down = false,
     config = nil,
     request_seq = 0,
-    server = {
-      status = "unknown",
-      owned = false,
-    },
+    server = initial_server_state(),
   }
 end
 
@@ -26,6 +40,8 @@ function M.configure(resolved)
   runtime.config = vim.deepcopy(resolved)
   runtime.configured = true
   runtime.enabled = resolved.enabled
+  runtime.shutting_down = false
+  runtime.server = initial_server_state()
 end
 
 ---@return boolean
@@ -58,6 +74,30 @@ end
 function M.next_request_id()
   runtime.request_seq = runtime.request_seq + 1
   return runtime.request_seq
+end
+
+---Replace serializable server lifecycle metadata.
+---@param server table
+function M.set_server(server)
+  if type(server) ~= "table" then
+    error("fimloom.state.set_server: expected a server state table", 2)
+  end
+
+  if not server_statuses[server.status] then
+    error("fimloom.state.set_server: unknown server status", 2)
+  end
+
+  if type(server.owned) ~= "boolean" then
+    error("fimloom.state.set_server: server.owned must be a boolean", 2)
+  end
+
+  runtime.server = vim.deepcopy(server)
+end
+
+---Return a defensive copy of server lifecycle metadata.
+---@return table
+function M.get_server()
+  return vim.deepcopy(runtime.server)
 end
 
 ---Return a serializable snapshot for diagnostics and tests.

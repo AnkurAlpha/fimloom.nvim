@@ -517,7 +517,7 @@ transport can be considered after the behavior is stable.
 2. If healthy, mark the server as available and **not owned**.
 3. If unhealthy and `auto_start = false`, report a helpful connection error.
 4. If unhealthy and `auto_start = true`, resolve the configured argv command.
-5. Start the process directly with `vim.system()` and retain its process object.
+5. Start the process directly with `jobstart()` and retain its job identifier.
 6. Mark ownership only after process creation succeeds.
 7. Poll the health endpoint with backoff until ready, the process exits, or the
    startup timeout expires.
@@ -529,13 +529,18 @@ On `VimLeavePre`, explicit disable when configured, or `:FIMLoom stop`:
 
 1. Cancel timers and completion requests.
 2. Check that the process is marked as owned by this Neovim instance.
-3. Send a graceful termination signal.
+3. Call `jobstop()` so Neovim terminates the managed process group.
 4. Never search for and kill processes by executable name or port.
 5. Never kill a pre-existing process merely because its endpoint matches.
 
-If graceful termination does not finish promptly during an explicit stop, a
-carefully scoped forced termination of the retained process handle may be
-offered. The exit autocmd must remain fast and reliable.
+`jobstop()` sends `SIGTERM` and applies Neovim's bounded `SIGKILL` fallback when
+the job does not exit. The exit autocmd must remain fast and reliable.
+
+The job-control API is deliberate. For the supported Neovim releases,
+terminating a `vim.system()` process can leave descendants running, while
+`jobstart()` and `jobstop()` preserve Neovim's process-group cleanup behavior.
+The HTTP transport still uses `vim.system()` because each request owns only a
+direct `curl` process.
 
 ### Known lifecycle limitations
 
