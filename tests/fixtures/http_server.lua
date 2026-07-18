@@ -67,9 +67,10 @@ local function response_for(request)
   return 404, vim.json.encode({ error = "not found" }), 0
 end
 
----Start a loopback HTTP server for transport integration tests.
+---Start a loopback HTTP server for integration tests.
+---@param handler? fun(request: table): integer, string, integer?
 ---@return table server
-function M.start()
+function M.start(handler)
   local handle = assert(uv.new_tcp())
   local clients = {}
   local timers = {}
@@ -106,7 +107,14 @@ function M.start()
   end
 
   local function dispatch(client, request)
-    local status, body, delay_ms = response_for(request)
+    local status, body, delay_ms
+    if handler then
+      status, body, delay_ms = handler(request)
+    else
+      status, body, delay_ms = response_for(request)
+    end
+
+    delay_ms = delay_ms or 0
     if delay_ms == 0 then
       write_response(client, status, body)
       return
