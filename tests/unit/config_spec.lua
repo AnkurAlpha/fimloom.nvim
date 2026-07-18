@@ -1,0 +1,129 @@
+return function(t)
+  local config = require("fimloom.config")
+
+  t.test("Ollama defaults resolve without mutating defaults", function()
+    local first = config.resolve()
+    local second = config.resolve()
+
+    t.assert_equal(first.provider, "ollama")
+    t.assert_equal(first.endpoint, "http://127.0.0.1:11434")
+    t.assert_equal(first.completion.mode, "fim")
+    t.assert_equal(first.server.auto_start, false)
+
+    first.completion.context.max_prefix_bytes = 1
+    t.assert_equal(second.completion.context.max_prefix_bytes, 12000)
+    t.assert_equal(config.defaults().completion.context.max_prefix_bytes, 12000)
+  end)
+
+  t.test("llama.cpp selects its provider default endpoint", function()
+    local resolved = config.resolve({
+      provider = "llamacpp",
+      model = "/models/qwen.gguf",
+    })
+
+    t.assert_equal(resolved.endpoint, "http://127.0.0.1:8012")
+    t.assert_equal(resolved.model, "/models/qwen.gguf")
+  end)
+
+  t.test("custom endpoint ports are preserved and trailing slashes removed", function()
+    local resolved = config.resolve({
+      endpoint = "http://127.0.0.1:45678///",
+      model = "local-code-model",
+    })
+
+    t.assert_equal(resolved.endpoint, "http://127.0.0.1:45678")
+    t.assert_equal(resolved.model, "local-code-model")
+  end)
+
+  t.test("resolved options are independent from the user table", function()
+    local options = {
+      completion = {
+        generation = {
+          max_tokens = 64,
+        },
+      },
+    }
+    local resolved = config.resolve(options)
+
+    options.completion.generation.max_tokens = 1
+    t.assert_equal(resolved.completion.generation.max_tokens, 64)
+  end)
+
+  t.test("unknown providers fail with an actionable path", function()
+    t.assert_error(function()
+      config.resolve({ provider = "missing" })
+    end, "provider has unknown provider")
+  end)
+
+  t.test("endpoint validation rejects unsupported schemes", function()
+    t.assert_error(function()
+      config.resolve({ endpoint = "ftp://127.0.0.1:11434" })
+    end, "endpoint must be an HTTP or HTTPS URL")
+  end)
+
+  t.test("endpoint validation rejects query strings", function()
+    t.assert_error(function()
+      config.resolve({ endpoint = "http://127.0.0.1:11434?token=secret" })
+    end, "endpoint must not contain a query string or fragment")
+  end)
+
+  t.test("model must be non-empty when provided", function()
+    t.assert_error(function()
+      config.resolve({ model = "  " })
+    end, "model must be a non-empty string")
+  end)
+
+  t.test("startup commands accept argument arrays", function()
+    local resolved = config.resolve({
+      server = {
+        command = { "ollama", "serve" },
+      },
+    })
+
+    t.assert_deep_equal(resolved.server.command, { "ollama", "serve" })
+  end)
+
+  t.test("startup commands reject shell strings and empty arrays", function()
+    t.assert_error(function()
+      config.resolve({ server = { command = "ollama serve" } })
+    end, "server.command must be a non-empty argument list")
+
+    t.assert_error(function()
+      config.resolve({ server = { command = {} } })
+    end, "server.command must be a non-empty argument list")
+  end)
+
+  t.test("numeric completion options enforce safe ranges", function()
+    t.assert_error(function()
+      config.resolve({ completion = { debounce_ms = -1 } })
+    end, "completion.debounce_ms must be between")
+
+    t.assert_error(function()
+      config.resolve({ completion = { generation = { temperature = 3 } } })
+    end, "completion.generation.temperature must be between")
+  end)
+
+  t.test("nested configuration sections must remain tables", function()
+    t.assert_error(function()
+      config.resolve({ completion = false })
+    end, "completion must be a table")
+
+    t.assert_error(function()
+      config.resolve({ server = "ollama serve" })
+    end, "server must be a table")
+  end)
+
+  t.test("keymaps can be disabled explicitly", function()
+    local resolved = config.resolve({
+      keymaps = {
+        accept = false,
+        dismiss = false,
+        manual = false,
+      },
+    })
+
+    t.assert_equal(resolved.keymaps.accept, false)
+    t.assert_equal(resolved.keymaps.dismiss, false)
+    t.assert_equal(resolved.keymaps.manual, false)
+  end)
+end

@@ -1,24 +1,18 @@
-local M = {}
+local config = require("fimloom.config")
+local state = require("fimloom.state")
 
-local configured = false
-local resolved_options = {}
+local M = {}
 
 ---Configure FIMLoom for the current Neovim instance.
 ---
----Stage 1 intentionally stores configuration without starting a model server
----or registering completion events. Validation and defaults are introduced in
----the next implementation stage.
+---Configuration is resolved and stored without starting a model server or
+---registering completion events. Those side effects are introduced in later
+---implementation stages.
 ---@param options? table
 ---@return table module
 function M.setup(options)
-  options = options or {}
-
-  if type(options) ~= "table" then
-    error("fimloom.setup: expected a table or nil", 2)
-  end
-
-  resolved_options = vim.deepcopy(options)
-  configured = true
+  local resolved = config.resolve(options)
+  state.configure(resolved)
 
   return M
 end
@@ -26,13 +20,19 @@ end
 ---Return whether setup has run successfully.
 ---@return boolean
 function M.is_configured()
-  return configured
+  return state.is_configured()
 end
 
----Return a defensive copy of the currently stored options.
+---Return whether FIMLoom is enabled.
+---@return boolean
+function M.is_enabled()
+  return state.is_enabled()
+end
+
+---Return a defensive copy of the resolved configuration.
 ---@return table
 function M.get_config()
-  return vim.deepcopy(resolved_options)
+  return state.get_config()
 end
 
 return M
