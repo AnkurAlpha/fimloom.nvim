@@ -200,23 +200,75 @@ return function(t)
     end)
   end)
 
-  t.test("setup preserves existing insert-mode mappings", function()
+  t.test("setup preserves existing non-accept insert-mode mappings", function()
     completion.shutdown()
     state._reset()
-    vim.keymap.set("i", "<Tab>", "existing-tab-map", {
-      desc = "Existing tab mapping",
+    vim.keymap.set("i", "<C-]>", "existing-dismiss-map", {
+      desc = "Existing dismiss mapping",
     })
 
     local ok, error_message = xpcall(function()
       local resolved = config.resolve({
         provider = "llamacpp",
+        keymaps = {
+          accept = false,
+          dismiss = "<C-]>",
+          manual = false,
+        },
       })
       state.configure(resolved)
       completion.setup(resolved, { providers = fake_provider() })
-      local existing = vim.fn.maparg("<Tab>", "i", false, true)
+      local existing = vim.fn.maparg("<C-]>", "i", false, true)
 
-      t.assert_equal(existing.desc, "Existing tab mapping")
-      t.assert_equal(existing.rhs, "existing-tab-map")
+      t.assert_equal(existing.desc, "Existing dismiss mapping")
+      t.assert_equal(existing.rhs, "existing-dismiss-map")
+    end, debug.traceback)
+
+    completion.shutdown()
+    pcall(vim.keymap.del, "i", "<C-]>")
+    state._reset()
+
+    if not ok then
+      error(error_message)
+    end
+  end)
+
+  t.test("Codeium-style Tab claims the key and schedules safe acceptance", function()
+    completion.shutdown()
+    state._reset()
+
+    vim.keymap.set("i", "<Tab>", "existing-tab-map", {
+      desc = "Existing tab mapping",
+    })
+
+    local ok, error_message = xpcall(function()
+      with_runtime({
+        keymaps = {
+          accept = "<Tab>",
+        },
+      }, { "local answer = " }, function(buffer, window, fake)
+        local installed = vim.fn.maparg("<Tab>", "i", false, true)
+        t.assert_equal(installed.desc, "FIMLoom: accept inline suggestion")
+        t.assert_equal(installed.expr, 1)
+        t.assert_equal(installed.nowait, 1)
+
+        vim.api.nvim_win_set_cursor(window, { 1, #"local answer = " })
+        t.assert_equal(completion.trigger({ manual = true }), true)
+        fake.calls[1].callback({ ok = true, text = "42" })
+        wait_for(render.has_suggestion)
+
+        t.assert_equal(installed.callback(), "")
+        t.assert_equal(vim.api.nvim_buf_get_lines(buffer, 0, -1, false)[1], "local answer = ")
+        wait_for(function()
+          return vim.api.nvim_buf_get_lines(buffer, 0, -1, false)[1] == "local answer = 42"
+        end, "scheduled Tab acceptance did not edit the buffer")
+
+        local live = vim.fn.maparg("<Tab>", "i", false, true)
+        t.assert_equal(live.callback(), vim.api.nvim_replace_termcodes("<Tab>", true, false, true))
+      end)
+
+      local removed = vim.fn.maparg("<Tab>", "i", false, true)
+      t.assert_equal(vim.tbl_isempty(removed), true)
     end, debug.traceback)
 
     completion.shutdown()

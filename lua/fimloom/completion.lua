@@ -287,8 +287,12 @@ local function mapping_is_available(lhs)
   return type(existing) ~= "table" or vim.tbl_isempty(existing)
 end
 
-local function add_mapping(lhs, callback, options)
-  if lhs == false or not mapping_is_available(lhs) then
+local function add_mapping(lhs, callback, options, force)
+  if lhs == false then
+    return
+  end
+
+  if not force and not mapping_is_available(lhs) then
     return
   end
 
@@ -302,15 +306,19 @@ end
 local function register_mappings(config)
   local accept = config.keymaps.accept
   add_mapping(accept, function()
-    if M.accept() then
+    if dependencies.render.has_suggestion() then
+      -- Expression mappings run under textlock. Schedule acceptance so the
+      -- buffer edit happens after Neovim finishes evaluating this keypress.
+      vim.schedule(M.accept)
       return ""
     end
     return passthrough(accept)
   end, {
     desc = "FIMLoom: accept inline suggestion",
     expr = true,
+    nowait = true,
     silent = true,
-  })
+  }, true)
 
   local dismiss = config.keymaps.dismiss
   add_mapping(dismiss, function()
