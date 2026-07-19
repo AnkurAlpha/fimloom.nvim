@@ -1,0 +1,14 @@
+# Replace @MODEL_PATH@ with the absolute path to mellum-4b-base.Q8_0.gguf.
+FROM @MODEL_PATH@
+
+TEMPLATE """{{ if .Suffix }}<fim_suffix>{{ .Suffix }}<fim_prefix>{{ .Prompt }}<fim_middle>{{ else }}{{ .Prompt }}{{ end }}"""
+
+PARAMETER num_ctx 8192
+PARAMETER temperature 0
+
+PARAMETER stop "<fim_prefix>"
+PARAMETER stop "<fim_suffix>"
+PARAMETER stop "<fim_middle>"
+PARAMETER stop "<fim_pad>"
+PARAMETER stop "<filename>"
+PARAMETER stop "<reponame>"

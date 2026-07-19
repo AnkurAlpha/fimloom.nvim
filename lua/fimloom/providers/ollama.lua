@@ -54,6 +54,7 @@ function M.completion_request(context, config)
     prompt = context.prefix,
     suffix = context.suffix,
     stream = false,
+    think = false,
     options = {
       num_predict = config.completion.generation.max_tokens,
       temperature = config.completion.generation.temperature,

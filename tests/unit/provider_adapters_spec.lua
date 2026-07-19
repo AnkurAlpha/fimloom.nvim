@@ -65,6 +65,7 @@ return function(t)
       prompt = "local answer = ",
       suffix = "\nreturn answer",
       stream = false,
+      think = false,
       options = {
         num_predict = 77,
         temperature = 0.1,
@@ -160,6 +161,7 @@ return function(t)
       t.assert_equal(server.requests[1].path, "/api/generate")
       t.assert_equal(received.model, "local-coder")
       t.assert_equal(received.prompt, "answer = ")
+      t.assert_equal(received.think, false)
     end)
   end)
 

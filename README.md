@@ -66,7 +66,7 @@ context size, and hardware determine latency and quality.
   main = "fimloom",
   opts = {
     provider = "ollama",
-    model = "qwen2.5-coder:1.5b-base",
+    model = "mellum:4b-fimloom",
   },
 }
 ```
@@ -84,7 +84,7 @@ trigger lets `:FIMLoom ...` load the plugin before the first Insert-mode entry.
   main = "fimloom",
   opts = {
     provider = "ollama",
-    model = "qwen2.5-coder:1.5b-base",
+    model = "mellum:4b-fimloom",
   },
 }
 ```
@@ -94,11 +94,43 @@ before using `:checkhealth fimloom`.
 
 ## Ollama quick start
 
-FIMLoom never downloads models automatically. Pull a FIM-capable model yourself:
+FIMLoom never downloads models automatically. The examples below use
+[JetBrains Mellum 4B base](https://huggingface.co/JetBrains/Mellum-4b-base), a
+small model trained specifically for code completion and evaluated on
+fill-in-the-middle benchmarks. Download the official Q8 GGUF once:
 
 ```sh
-ollama pull qwen2.5-coder:1.5b-base
+model_dir="$HOME/.local/share/fimloom/models"
+model="$model_dir/mellum-4b-base.Q8_0.gguf"
+
+mkdir -p "$model_dir"
+curl --fail --location --continue-at - \
+  --output "$model.part" \
+  https://huggingface.co/JetBrains/Mellum-4b-base-gguf/resolve/main/mellum-4b-base.Q8_0.gguf
+
+echo "f8a8ae8f8b02cd992716e8849fe0424184bc7a26c2b829131ed558567307c5b2  $model.part" \
+  | sha256sum --check \
+  && mv "$model.part" "$model"
 ```
+
+The file is about 4.27 GB. Its published SHA-256 is checked before the partial
+download is promoted. To import that local GGUF into Ollama, substitute its
+absolute path into the Modelfile template shipped with FIMLoom:
+
+```sh
+model="$(realpath "$HOME/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf")"
+sed "s|@MODEL_PATH@|$model|" \
+  /path/to/fimloom.nvim/examples/mellum-4b-fim.Modelfile \
+  > /tmp/FIMLoom.Mellum.Modelfile
+
+ollama create mellum:4b-fimloom -f /tmp/FIMLoom.Mellum.Modelfile
+rm -f /tmp/FIMLoom.Mellum.Modelfile
+```
+
+Replace `/path/to/fimloom.nvim` with the plugin checkout. The model name
+`mellum:4b-fimloom` is local and can be changed as long as `opts.model` matches.
+Ollama stores an imported model layer in its own model store; the original GGUF
+can also be used directly by llama.cpp.
 
 Then configure FIMLoom to use an existing Ollama service:
 
@@ -111,7 +143,7 @@ Then configure FIMLoom to use an existing Ollama service:
   opts = {
     provider = "ollama",
     endpoint = "http://127.0.0.1:11434",
-    model = "qwen2.5-coder:1.5b-base",
+    model = "mellum:4b-fimloom",
     server = {
       auto_start = false,
     },
@@ -126,7 +158,7 @@ FIMLoom can start it:
 opts = {
   provider = "ollama",
   endpoint = "http://127.0.0.1:11434",
-  model = "qwen2.5-coder:1.5b-base",
+  model = "mellum:4b-fimloom",
   server = {
     auto_start = true,
     auto_stop = true,
@@ -139,13 +171,19 @@ FIMLoom probes `GET /api/tags` first. If the configured service is already
 healthy, it is treated as external and will not be stopped. Otherwise, the
 configured command is started and polled until ready.
 
-The example model is deliberately small for responsiveness. Choose a larger
-installed code model if your hardware can serve it with acceptable latency.
+Ollama completion requests set `think = false` so reasoning text cannot become
+inline code. The model must still expose fill-in-the-middle support through an
+Ollama template containing `{{ .Suffix }}`.
+
+Adding FIM tokens or a suffix-aware template does not train a general model to
+perform infilling. Choose a base model whose documentation explicitly reports
+FIM training or benchmarks. The Mellum manifest only exposes the FIM behavior
+already present in its weights.
 
 ## llama.cpp quick start
 
 Build or install `llama-server`, then obtain a FIM-capable GGUF model yourself.
-FIMLoom does not download, convert, or select model files.
+The configuration below reuses the Mellum file from the Ollama quick start:
 
 ```lua
 {
@@ -156,7 +194,9 @@ FIMLoom does not download, convert, or select model files.
   opts = {
     provider = "llamacpp",
     endpoint = "http://127.0.0.1:8012",
-    model = "/home/ankur/models/code-model.gguf",
+    model = vim.fn.expand(
+      "~/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf"
+    ),
     server = {
       auto_start = true,
       auto_stop = true,
@@ -172,6 +212,10 @@ FIMLoom does not download, convert, or select model files.
           "8012",
           "--ctx-size",
           "8192",
+          "--n-gpu-layers",
+          "999",
+          "--spm-infill",
+          "--no-warmup",
         }
       end,
     },
@@ -179,8 +223,10 @@ FIMLoom does not download, convert, or select model files.
 }
 ```
 
-The endpoint and `--port` must match. Add hardware-specific llama.cpp arguments,
-such as GPU-layer settings, to the returned argv list when appropriate.
+The endpoint and `--port` must match. Mellum requires `--spm-infill` because it
+uses suffix-prefix-middle token order. Other models may use the default
+prefix-suffix-middle order, so do not copy that flag without checking their
+model cards. Adjust GPU-layer and context arguments for the available hardware.
 
 For a server started outside Neovim, omit `command` and keep
 `server.auto_start = false`. The configured `model` path is then diagnostic
@@ -442,7 +488,9 @@ Start with:
 | `curl` health error | Install `curl` and confirm it is in the environment used to start Neovim. |
 | Endpoint is unreachable | Confirm the host/port, start the server, and test its native health endpoint. |
 | Ollama model missing | Run `ollama list`, then explicitly `ollama pull <model>` and match `opts.model`. |
+| Ollama says the model does not support insert | Use a genuine FIM model and a suffix-aware manifest; see the Mellum Ollama quick start. |
 | llama.cpp returns 404 | Use `llama-server`'s native base URL and ensure its `/health` and `/infill` endpoints are enabled. |
+| Mellum produces poor llama.cpp infills | Start `llama-server` with `--spm-infill`; Mellum uses suffix-prefix-middle order. |
 | Startup executable missing | Correct the first item in `server.command` or install the executable. |
 | Startup times out | Increase `server.startup_timeout_ms` and inspect server diagnostics outside FIMLoom. |
 | No automatic suggestion | Confirm `auto_trigger`, buffer suitability, filetype filters, Insert mode, and that the popup menu is closed. |

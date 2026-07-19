@@ -91,6 +91,36 @@ local function remove_suffix_overlap(text, suffix)
     end
   end
 
+  local compact_text = text:gsub("%s", "")
+  local compact_suffix = suffix:gsub("%s", "")
+  maximum = math.min(#compact_text, #compact_suffix)
+  for length = maximum, 1, -1 do
+    local overlap = compact_suffix:sub(1, length)
+    local safe_fuzzy_overlap = length >= 3 or overlap:match("^%p+$") ~= nil
+    if safe_fuzzy_overlap and compact_text:sub(#compact_text - length + 1) == overlap then
+      local seen = 0
+      local start = #text + 1
+
+      for index = #text, 1, -1 do
+        if not text:sub(index, index):match("%s") then
+          seen = seen + 1
+        end
+
+        if seen == length then
+          start = index
+          break
+        end
+      end
+
+      local first = text:sub(start, start)
+      local preceding = start > 1 and text:sub(start - 1, start - 1) or ""
+      local inside_identifier = first:match("[%w_]") and preceding:match("[%w_]")
+      if not inside_identifier then
+        return text:sub(1, start - 1):gsub("[ \t]+$", "")
+      end
+    end
+  end
+
   return text
 end
 

@@ -13,6 +13,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Local-first, non-streaming fill-in-the-middle completion for Neovim 0.10+.
 - Native Ollama `/api/generate` and llama.cpp `/infill` adapters.
+- Non-thinking Ollama FIM requests so reasoning content cannot become ghost
+  text.
+- A reusable JetBrains Mellum 4B Ollama Modelfile and llama.cpp example with
+  the model's required suffix-prefix-middle ordering.
 - Provider-specific health checks, custom endpoints/ports, and model selection.
 - Asynchronous, cancellable `curl` transport with timeouts, byte bounds,
   structured failures, JSON validation, and loopback integration tests.
@@ -22,6 +26,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   request IDs, and stale-response rejection.
 - Single-line and multiline extmark ghost text with undo-friendly one-edit
   acceptance.
+- Exact and conservative whitespace-tolerant suffix-overlap removal.
 - Conflict-aware Insert-mode mappings for accept, dismiss, and manual requests.
 - Optional argv-only server startup, readiness polling, bounded process output,
   ownership tracking, and normal-exit cleanup.

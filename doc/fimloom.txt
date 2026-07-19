@@ -68,7 +68,7 @@ Install the public repository with lazy.nvim: >lua
       main = "fimloom",
       opts = {
         provider = "ollama",
-        model = "qwen2.5-coder:1.5b-base",
+        model = "mellum:4b-fimloom",
       },
     }
 <
@@ -86,7 +86,7 @@ For development, use the repository directory: >lua
       main = "fimloom",
       opts = {
         provider = "ollama",
-        model = "qwen2.5-coder:1.5b-base",
+        model = "mellum:4b-fimloom",
       },
     }
 <
@@ -103,17 +103,42 @@ Default endpoint: `http://127.0.0.1:11434`
 Health endpoint: `GET /api/tags`
 Completion endpoint: `POST /api/generate`
 
-FIMLoom does not pull models. Install one explicitly, for example: >sh
+FIMLoom does not pull models. The documented example is JetBrains Mellum 4B
+base, a small code-completion model with published FIM evaluations. Download
+and verify the official GGUF: >sh
 
-    ollama pull qwen2.5-coder:1.5b-base
+    model_dir="$HOME/.local/share/fimloom/models"
+    model="$model_dir/mellum-4b-base.Q8_0.gguf"
+    mkdir -p "$model_dir"
+    curl --fail --location --continue-at - \
+      --output "$model.part" \
+      https://huggingface.co/JetBrains/Mellum-4b-base-gguf/resolve/main/mellum-4b-base.Q8_0.gguf
+    echo "f8a8ae8f8b02cd992716e8849fe0424184bc7a26c2b829131ed558567307c5b2  $model.part" \
+      | sha256sum --check \
+      && mv "$model.part" "$model"
 <
+
+Import the same GGUF into Ollama with the shipped template: >sh
+
+    model="$(realpath "$HOME/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf")"
+    sed "s|@MODEL_PATH@|$model|" \
+      /path/to/fimloom.nvim/examples/mellum-4b-fim.Modelfile \
+      > /tmp/FIMLoom.Mellum.Modelfile
+    ollama create mellum:4b-fimloom -f /tmp/FIMLoom.Mellum.Modelfile
+    rm -f /tmp/FIMLoom.Mellum.Modelfile
+<
+
+Replace `/path/to/fimloom.nvim` with the plugin checkout. The original GGUF
+can also be served directly by llama.cpp. Adding a FIM-looking template does
+not train a general model for infilling; choose weights whose documentation
+explicitly reports FIM training or benchmarks.
 
 Use an existing Ollama service: >lua
 
     require("fimloom").setup({
       provider = "ollama",
       endpoint = "http://127.0.0.1:11434",
-      model = "qwen2.5-coder:1.5b-base",
+      model = "mellum:4b-fimloom",
       server = {
         auto_start = false,
       },
@@ -129,18 +154,25 @@ Or let FIMLoom start Ollama when the endpoint is unhealthy: >lua
     }
 <
 
+FIMLoom sends `think = false` for Ollama completions so reasoning text cannot
+become ghost text. Ollama FIM models must use a template containing
+`{{ .Suffix }}`.
+
 LLAMA.CPP                                               *fimloom-llamacpp*
 
 Default endpoint: `http://127.0.0.1:8012`
 Health endpoint: `GET /health`
 Completion endpoint: `POST /infill`
 
-Install `llama-server` and obtain a FIM-capable GGUF model separately: >lua
+Install `llama-server` and obtain a FIM-capable GGUF model separately. This
+example reuses the Mellum GGUF downloaded above: >lua
 
     require("fimloom").setup({
       provider = "llamacpp",
       endpoint = "http://127.0.0.1:8012",
-      model = "/home/ankur/models/code-model.gguf",
+      model = vim.fn.expand(
+        "~/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf"
+      ),
       server = {
         auto_start = true,
         auto_stop = true,
@@ -152,15 +184,21 @@ Install `llama-server` and obtain a FIM-capable GGUF model separately: >lua
             "--host", "127.0.0.1",
             "--port", "8012",
             "--ctx-size", "8192",
+            "--n-gpu-layers", "999",
+            "--spm-infill",
+            "--no-warmup",
           }
         end,
       },
     })
 <
 
-The endpoint port and server port must match. When llama.cpp is started
-outside Neovim, `model` is diagnostic metadata; the external server controls
-the model that is loaded.
+The endpoint port and server port must match. Mellum requires `--spm-infill`
+because its FIM prompt uses suffix-prefix-middle ordering. Do not use that flag
+for a model whose card specifies prefix-suffix-middle ordering. Adjust GPU
+arguments for the available hardware. When llama.cpp is started outside
+Neovim, `model` is diagnostic metadata; the external server controls the model
+that is loaded.
 
 =============================================================================
 5. Configuration                                     *fimloom-configuration*
@@ -446,10 +484,21 @@ OLLAMA MODEL MISSING ~
 Run `ollama list`, install the chosen model explicitly, and make `opts.model`
 match its name.
 
+OLLAMA MODEL DOES NOT SUPPORT INSERT ~
+
+Use a native FIM model or create a derived manifest whose template contains
+`{{ .Suffix }}`. See |fimloom-ollama| for the tested Mellum example. A template
+does not add FIM capability to weights that were not trained for infilling.
+
 LLAMA.CPP RETURNS 404 ~
 
 Use the native `llama-server` base URL. Confirm `/health` and `/infill` are
 available and that no extra API path was added to `endpoint`.
+
+MELLUM PRODUCES POOR LLAMA.CPP INFILLS ~
+
+Start `llama-server` with `--spm-infill`. Mellum uses suffix-prefix-middle FIM
+ordering rather than llama.cpp's default prefix-suffix-middle ordering.
 
 NO AUTOMATIC SUGGESTION ~
 
