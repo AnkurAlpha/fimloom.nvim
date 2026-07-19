@@ -80,7 +80,7 @@ LOCAL CHECKOUT ~
 For development, use the repository directory: >lua
 
     {
-      dir = "/home/ankur/git_work/github/fimloom.nvim",
+      dir = "/absolute/path/to/fimloom.nvim",
       event = "InsertEnter",
       cmd = "FIMLoom",
       main = "fimloom",

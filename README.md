@@ -78,7 +78,7 @@ trigger lets `:FIMLoom ...` load the plugin before the first Insert-mode entry.
 
 ```lua
 {
-  dir = "/home/ankur/git_work/github/fimloom.nvim",
+  dir = "/absolute/path/to/fimloom.nvim",
   event = "InsertEnter",
   cmd = "FIMLoom",
   main = "fimloom",

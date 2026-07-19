@@ -2,7 +2,7 @@
 
 > Local-first inline code completion for Neovim.
 
-- **Document status:** Proposed for review
+- **Document status:** Implemented through Stage 8; Stage 9 publication pending
 - **Target release:** `v0.1.0`
 - **Primary language:** Lua
 - **License:** MIT
@@ -202,7 +202,7 @@ through `opts` directly.
   opts = {
     provider = "ollama",
     endpoint = "http://127.0.0.1:11434",
-    model = "qwen2.5-coder:3b",
+    model = "mellum:4b-fimloom",
 
     completion = {
       mode = "fim",
@@ -228,19 +228,20 @@ through `opts` directly.
 }
 ```
 
-The GitHub owner in examples is provisional until the repository URL is
-confirmed.
+The public repository path is `AnkurAlpha/fimloom.nvim`.
 
 ### llama.cpp example
 
 ```lua
 {
-  dir = "/home/ankur/git_work/github/fimloom.nvim",
+  dir = "/absolute/path/to/fimloom.nvim",
   event = "InsertEnter",
   opts = {
     provider = "llamacpp",
     endpoint = "http://127.0.0.1:8012",
-    model = "/home/ankur/models/qwen2.5-coder-3b-q4_k_m.gguf",
+    model = vim.fn.expand(
+      "~/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf"
+    ),
 
     completion = {
       mode = "fim",
@@ -261,7 +262,9 @@ confirmed.
           "--host", "127.0.0.1",
           "--port", "8012",
           "--ctx-size", "8192",
-          "--n-gpu-layers", "all",
+          "--n-gpu-layers", "999",
+          "--spm-infill",
+          "--no-warmup",
         }
       end,
       startup_timeout_ms = 60000,
