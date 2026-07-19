@@ -8,7 +8,7 @@ designed for local inference: no account, API key, cloud service, telemetry, or
 automatic model download is required.
 
 > [!IMPORTANT]
-> FIMLoom is an early project. The `v0.1.0` API focuses on one job—fast,
+> FIMLoom is an early project. The `v0.1.x` API focuses on one job—fast,
 > cancellable fill-in-the-middle completion—and intentionally excludes chat,
 > agents, repository indexing, and cloud providers.
 
@@ -20,7 +20,7 @@ automatic model download is required.
 - UTF-8-safe, byte-bounded prefix and suffix context.
 - Single-line and multiline extmark previews that do not modify the buffer.
 - Cancellation and stale-response rejection whenever editing state changes.
-- Conflict-aware accept, dismiss, and manual-completion mappings.
+- Codeium-style `<Tab>` acceptance with conflict-aware dismiss and manual mappings.
 - Optional argv-only server startup with readiness polling.
 - Ownership-aware shutdown: FIMLoom stops only processes it started.
 - `:FIMLoom` controls, `:checkhealth fimloom`, and privacy-filtered diagnostics.
@@ -228,6 +228,50 @@ uses suffix-prefix-middle token order. Other models may use the default
 prefix-suffix-middle order, so do not copy that flag without checking their
 model cards. Adjust GPU-layer and context arguments for the available hardware.
 
+### Multiple Neovim sessions and idle GPU release
+
+FIMLoom `v0.1.x` does not coordinate ownership between separate Neovim
+processes. With `auto_stop = true`, the instance that started llama.cpp stops
+it when that editor exits, even when another editor is still using it. For a
+shared llama.cpp server, detach the process and let llama.cpp unload idle model
+weights:
+
+```sh
+llama-server --help 2>&1 | rg -- "--sleep-idle-seconds"
+```
+
+When that option is available, change the server portion of the configuration
+above as follows:
+
+```lua
+server = {
+  auto_start = true,
+  auto_stop = false,
+  startup_timeout_ms = 60000,
+  command = function(config)
+    return {
+      "llama-server",
+      "--model", config.model,
+      "--host", "127.0.0.1",
+      "--port", "8012",
+      "--ctx-size", "8192",
+      "--n-gpu-layers", "999",
+      "--spm-infill",
+      "--no-warmup",
+      "--sleep-idle-seconds", "300",
+    }
+  end,
+}
+```
+
+Closing one Neovim instance will then leave the shared server available. After
+five minutes without inference, llama.cpp unloads the model weights while the
+server process remains alive. The next completion reloads the model and is
+therefore slower. Some backends may retain a small GPU allocation while the
+server sleeps; terminate the server to release everything. While its owning
+editor is open, use `:FIMLoom stop`; after that editor exits, terminate the
+specific `llama-server` process externally when needed.
+
 For a server started outside Neovim, omit `command` and keep
 `server.auto_start = false`. The configured `model` path is then diagnostic
 metadata; the external llama.cpp server decides which model is actually loaded.
@@ -377,10 +421,15 @@ keymaps = {
 }
 ```
 
-FIMLoom installs a default mapping only if that exact Insert-mode key is free.
-It will not overwrite an existing snippet, completion, or user mapping. When a
-FIMLoom accept/dismiss mapping has nothing to handle, the original key is passed
-through. Automatic requests also pause while Neovim's popup menu is visible.
+Like Codeium, FIMLoom installs its configured accept mapping unconditionally.
+The default `<Tab>` therefore takes ownership while FIMLoom is enabled, accepts
+visible ghost text first, and otherwise passes through a literal Tab. This
+intentionally replaces any earlier mapping on that key. Set
+`keymaps.accept = false` and integrate `require("fimloom").accept()` into your
+own mapping if you need snippet or completion-framework priority. Dismiss and
+manual mappings remain conflict-aware and are installed only when their exact
+keys are free. Automatic requests also pause while Neovim's popup menu is
+visible.
 
 ## Commands
 
@@ -438,9 +487,9 @@ or reconfiguring the plugin tears down work owned by the current instance.
 
 Normal cleanup uses Neovim job control and `VimLeavePre`. Cleanup cannot be
 guaranteed after `SIGKILL`, a Neovim crash, kernel failure, or power loss.
-`v0.1.0` also has no shared lease between multiple Neovim processes. If several
-editors should share one server, run it externally and set `auto_start = false`
-(or at least `auto_stop = false`).
+`v0.1.x` also has no shared lease between multiple Neovim processes. If several
+editors should share one server, run it externally and set `auto_start = false`,
+or use the detached llama.cpp idle-sleep recipe documented above.
 
 ## Privacy and diagnostics
 
@@ -495,7 +544,7 @@ Start with:
 | Startup times out | Increase `server.startup_timeout_ms` and inspect server diagnostics outside FIMLoom. |
 | No automatic suggestion | Confirm `auto_trigger`, buffer suitability, filetype filters, Insert mode, and that the popup menu is closed. |
 | Manual key does nothing | Your terminal may not encode `<M-\>`; choose another `keymaps.manual`. |
-| `<Tab>` does not accept | Another Insert-mode mapping already owns Tab; configure a free accept key or integrate explicitly. |
+| `<Tab>` does not accept | Run `:verbose imap <Tab>` and confirm it says `FIMLoom: accept inline suggestion`. If another plugin owns it, make FIMLoom load later or configure another accept key. |
 | Suggestion disappears | Typing, moving the cursor, changing buffers, or leaving Insert mode intentionally invalidates stale work. |
 | Remote endpoint warning | Use `127.0.0.1`, `localhost`, or `[::1]` if context must remain on the local machine. |
 

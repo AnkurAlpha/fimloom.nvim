@@ -200,6 +200,45 @@ arguments for the available hardware. When llama.cpp is started outside
 Neovim, `model` is diagnostic metadata; the external server controls the model
 that is loaded.
 
+MULTIPLE NEOVIM SESSIONS AND IDLE SLEEP ~
+
+FIMLoom `v0.1.x` does not coordinate ownership between separate Neovim
+processes. With `auto_stop = true`, the instance that started llama.cpp stops
+it on exit even when another editor is still using it. Confirm that the local
+llama.cpp build supports idle sleep: >sh
+
+    llama-server --help 2>&1 | rg -- "--sleep-idle-seconds"
+<
+
+Then detach the shared server and add an idle timeout: >lua
+
+    server = {
+      auto_start = true,
+      auto_stop = false,
+      startup_timeout_ms = 60000,
+      command = function(config)
+        return {
+          "llama-server",
+          "--model", config.model,
+          "--host", "127.0.0.1",
+          "--port", "8012",
+          "--ctx-size", "8192",
+          "--n-gpu-layers", "999",
+          "--spm-infill",
+          "--no-warmup",
+          "--sleep-idle-seconds", "300",
+        }
+      end,
+    }
+<
+
+Closing one Neovim instance now leaves the server available. After five
+minutes without inference, llama.cpp unloads the model weights but keeps its
+process alive. The first later completion reloads the model and is slower.
+Some backends retain a small GPU allocation while sleeping; terminate the
+server to release everything. Use `:FIMLoom stop` while the owning editor is
+open, or terminate the specific `llama-server` process externally afterward.
+
 =============================================================================
 5. Configuration                                     *fimloom-configuration*
 
@@ -400,9 +439,14 @@ Default Insert-mode mappings:
 `<M-\>`
     Request a completion manually.
 
-Each value under `keymaps` may be changed or set to false. FIMLoom installs a
-mapping only when the exact Insert-mode key is free. Existing mappings are not
-overwritten. Automatic requests pause while the popup menu is visible.
+Each value under `keymaps` may be changed or set to false. Like Codeium,
+FIMLoom installs the accept mapping unconditionally. The default `<Tab>` takes
+ownership while FIMLoom is enabled, accepts visible ghost text first, and
+otherwise passes through a literal Tab. This intentionally replaces an earlier
+mapping on that key. Set `keymaps.accept = false` and integrate
+`require("fimloom").accept()` into your own mapping when snippet or completion
+framework priority is required. Dismiss and manual mappings remain
+conflict-aware. Automatic requests pause while the popup menu is visible.
 
 Some terminals do not transmit `<M-\>` distinctly. Choose another manual
 mapping when needed.
@@ -425,8 +469,9 @@ Disabling or reconfiguring FIMLoom tears down work owned by the current
 instance. Cleanup cannot be guaranteed after `SIGKILL`, a Neovim crash, kernel
 failure, or power loss.
 
-`v0.1.0` has no lease shared across multiple Neovim processes. Run a shared
-server externally and use `auto_start = false` or `auto_stop = false`.
+`v0.1.x` has no lease shared across multiple Neovim processes. Run a shared
+server externally with `auto_start = false`, or use the detached llama.cpp
+idle-sleep configuration under |fimloom-llamacpp|.
 
 =============================================================================
 9. Privacy and diagnostics                                 *fimloom-privacy*
@@ -512,8 +557,10 @@ intentionally invalidates stale work.
 
 KEYMAP DOES NOT WORK ~
 
-An existing Insert-mode mapping may already own the key, or the terminal may
-not transmit the Meta combination. Configure a different free mapping.
+For `<Tab>`, run `:verbose imap <Tab>` and confirm FIMLoom owns the mapping. If
+another plugin owns it, make FIMLoom load later or configure another accept
+key. For other mappings, an existing mapping or terminal Meta-key handling may
+be responsible.
 
 STARTUP TIMEOUT ~
 

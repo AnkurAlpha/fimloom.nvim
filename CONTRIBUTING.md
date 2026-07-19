@@ -137,10 +137,12 @@ Real model tests are intentionally outside CI. Before a release, test at least:
 | Ollama managed by FIMLoom | Starts, completes, and stops on normal exit. |
 | llama.cpp already running | Uses `/infill`; remains external. |
 | llama.cpp managed by FIMLoom | Starts the configured GGUF and stops cleanly. |
+| Detached llama.cpp shared by editors | One editor can exit; idle sleep releases model weights. |
 | Slow request followed by typing | Older request is cancelled/ignored. |
 | Buffer or cursor change | Stale response is ignored. |
 | Multiline completion | Preview and one-edit acceptance are correct. |
-| Existing Insert-mode mapping | FIMLoom does not overwrite it. |
+| Existing accept mapping | FIMLoom claims the configured key while enabled. |
+| Existing dismiss/manual mapping | FIMLoom leaves the mapping unchanged. |
 | Non-loopback endpoint | Health reports the privacy boundary. |
 
 Record provider versions, model names, operating system, and Neovim version in

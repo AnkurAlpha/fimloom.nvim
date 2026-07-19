@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-19
+
+### Added
+
+- Document a multi-Neovim llama.cpp configuration that combines detached
+  server ownership with `--sleep-idle-seconds` to release idle model weights.
+
+### Fixed
+
+- Claim the default Insert-mode `<Tab>` accept key using Codeium-style mapping
+  precedence and schedule the buffer edit outside expression-mapping textlock.
+  A literal Tab is passed through when no ghost-text suggestion is visible.
+
 ## [0.1.0] - 2026-07-19
 
 ### Added
@@ -58,5 +71,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   loss.
 - Ownership is not coordinated across multiple Neovim processes.
 
-[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AnkurAlpha/fimloom.nvim/releases/tag/v0.1.0

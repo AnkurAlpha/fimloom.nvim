@@ -166,10 +166,11 @@ configurable. The proposed defaults are:
 | Request manually | `<M-\>` | Request a completion immediately |
 | Toggle plugin | command only | `:FIMLoom toggle` |
 
-The `<Tab>` mapping must include a fallback and must not break snippets or an
-existing completion popup. If a reliable universal fallback cannot be
-implemented, FIMLoom will default to a non-conflicting key and document an
-optional Tab mapping.
+The `<Tab>` mapping uses Codeium-style precedence: it accepts visible ghost
+text and otherwise emits a literal Tab. It deliberately replaces an earlier
+mapping on that key. Users who need snippet or completion-framework priority
+can disable the default accept mapping and integrate the public accept API.
+Automatic completion pauses while an existing completion popup is visible.
 
 ### Commands
 
@@ -550,7 +551,8 @@ direct `curl` process.
 - `VimLeavePre` handles normal Neovim exits, not `SIGKILL` or machine failure.
 - With several Neovim instances, the instance that owns the server cannot yet
   know whether another instance still needs it. `auto_stop = false` is the safe
-  shared-server configuration for `v0.1.0`.
+  shared-server configuration for `v0.1.x`; compatible llama.cpp builds can
+  combine it with `--sleep-idle-seconds` to unload idle model weights.
 - Wrapping the startup command in `sh -c` can detach grandchildren and is
   intentionally unsupported.
 
