@@ -35,7 +35,8 @@ cross-file context, streaming, and completion-framework integrations.
 
 Completion flow:
 
-1. An Insert-mode text change starts a debounce timer.
+1. An Insert-mode text change consumes a matching visible prefix or starts a
+   debounce timer.
 2. Older work is cancelled.
 3. UTF-8-safe bounded prefix and suffix context is captured.
 4. `curl` performs a native provider request through `vim.system()`.
@@ -254,6 +255,8 @@ Complete defaults: >lua
         mode = "fim",
         auto_trigger = true,
         debounce_ms = 180,
+        trim_trailing_blank_lines = true,
+        preserve_matching_prefix = true,
         context = {
           max_prefix_bytes = 12000,
           max_suffix_bytes = 4000,
@@ -270,6 +273,15 @@ Complete defaults: >lua
           max_bytes = 16 * 1024,
           max_lines = 100,
         },
+      },
+
+      ui = {
+        suggestion = {
+          fg = "#808080",
+          ctermfg = 244,
+          italic = false,
+        },
+        suggestion_hl = nil,
       },
 
       transport = {
@@ -318,6 +330,16 @@ COMPLETION ~
 `completion.debounce_ms`
     Delay after typing. Zero requests immediately.
 
+`completion.trim_trailing_blank_lines`
+    Remove every trailing whitespace-only output line before preview and
+    acceptance. Internal blank lines and indentation are unchanged.
+
+`completion.preserve_matching_prefix`
+    Keep a visible suggestion while exact inserted text consumes its prefix.
+    Verified multi-character, multiline, and indented insertions are supported.
+    Mismatch, deletion, movement, undo, popup-menu edits, or external changes
+    clear the suggestion and resume normal debounced completion.
+
 `completion.context.max_prefix_bytes`
 `completion.context.max_suffix_bytes`
     UTF-8-safe bounds for text around the cursor.
@@ -337,6 +359,40 @@ COMPLETION ~
 `completion.preview.max_bytes`
 `completion.preview.max_lines`
     Hard bounds applied before ghost text is rendered.
+
+UI ~
+
+`ui.suggestion.fg`
+`ui.suggestion.ctermfg`
+`ui.suggestion.italic`
+    Direct attributes for the dedicated `FIMLoomSuggestion` highlight. The
+    defaults are GUI grey `#808080`, terminal grey 244, no background, and no
+    italics.
+
+`ui.suggestion_hl`
+    Optional existing group to link `FIMLoomSuggestion` to. A link takes
+    precedence over direct configured attributes.
+
+FIMLoom applies its definition only while `FIMLoomSuggestion` is empty. An
+existing manual or colorscheme definition therefore wins. On ColorScheme,
+FIMLoom restores its configured/default definition only if the group was
+cleared. Examples: >lua
+
+    ui = {
+      suggestion = {
+        fg = "#707070",
+        ctermfg = 242,
+        italic = true,
+      },
+    }
+
+    ui = { suggestion_hl = "Comment" }
+
+    vim.api.nvim_set_hl(0, "FIMLoomSuggestion", {
+      fg = "#707070",
+      italic = true,
+    })
+<
 
 TRANSPORT ~
 

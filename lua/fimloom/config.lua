@@ -9,6 +9,8 @@ local defaults = {
     mode = "fim",
     auto_trigger = true,
     debounce_ms = 180,
+    trim_trailing_blank_lines = true,
+    preserve_matching_prefix = true,
     context = {
       max_prefix_bytes = 12000,
       max_suffix_bytes = 4000,
@@ -25,6 +27,14 @@ local defaults = {
       max_bytes = 16 * 1024,
       max_lines = 100,
     },
+  },
+  ui = {
+    suggestion = {
+      fg = "#808080",
+      ctermfg = 244,
+      italic = false,
+    },
+    suggestion_hl = nil,
   },
   transport = {
     connect_timeout_ms = 1000,
@@ -159,6 +169,18 @@ local function validate_log_file(value)
   validate_non_empty_string("log.file", value)
 end
 
+local function validate_ui(resolved)
+  validate_table("ui", resolved.ui)
+  validate_table("ui.suggestion", resolved.ui.suggestion)
+  validate_non_empty_string("ui.suggestion.fg", resolved.ui.suggestion.fg)
+  validate_integer("ui.suggestion.ctermfg", resolved.ui.suggestion.ctermfg, 0, 255)
+  validate_boolean("ui.suggestion.italic", resolved.ui.suggestion.italic)
+
+  if resolved.ui.suggestion_hl ~= nil then
+    validate_non_empty_string("ui.suggestion_hl", resolved.ui.suggestion_hl)
+  end
+end
+
 local function validate(resolved)
   validate_boolean("enabled", resolved.enabled)
 
@@ -180,6 +202,14 @@ local function validate(resolved)
 
   validate_boolean("completion.auto_trigger", resolved.completion.auto_trigger)
   validate_integer("completion.debounce_ms", resolved.completion.debounce_ms, 0, 10000)
+  validate_boolean(
+    "completion.trim_trailing_blank_lines",
+    resolved.completion.trim_trailing_blank_lines
+  )
+  validate_boolean(
+    "completion.preserve_matching_prefix",
+    resolved.completion.preserve_matching_prefix
+  )
   validate_table("completion.context", resolved.completion.context)
   validate_integer(
     "completion.context.max_prefix_bytes",
@@ -223,6 +253,8 @@ local function validate(resolved)
     1024 * 1024
   )
   validate_integer("completion.preview.max_lines", resolved.completion.preview.max_lines, 1, 1000)
+
+  validate_ui(resolved)
 
   validate_table("transport", resolved.transport)
   validate_integer("transport.connect_timeout_ms", resolved.transport.connect_timeout_ms, 1, 60000)

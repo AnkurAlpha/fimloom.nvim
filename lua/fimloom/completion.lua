@@ -1,5 +1,6 @@
 local context_module = require("fimloom.context")
 local log = require("fimloom.log")
+local output = require("fimloom.output")
 local providers_module = require("fimloom.providers")
 local render_module = require("fimloom.render")
 local state = require("fimloom.state")
@@ -17,44 +18,9 @@ local debounce_timer
 local active_request
 local augroup
 local mappings = {}
-
-local function is_continuation_byte(byte)
-  return byte and byte >= 0x80 and byte <= 0xBF
-end
-
-local function take_head_utf8(value, limit)
-  if #value <= limit then
-    return value
-  end
-
-  local finish = limit
-  if is_continuation_byte(value:byte(finish + 1)) then
-    while finish > 0 and is_continuation_byte(value:byte(finish)) do
-      finish = finish - 1
-    end
-    finish = finish - 1
-  end
-
-  return finish > 0 and value:sub(1, finish) or ""
-end
-
-local function limit_lines(text, maximum)
-  local search_from = 1
-  for line = 1, maximum do
-    local newline = text:find("\n", search_from, true)
-    if not newline then
-      return text
-    end
-
-    if line == maximum then
-      return text:sub(1, newline - 1)
-    end
-
-    search_from = newline + 1
-  end
-
-  return text
-end
+local handled_change
+local accepted_change
+local accepting
 
 local function stop_timer()
   if not debounce_timer then
@@ -83,85 +49,28 @@ local function cancel_request()
   return true
 end
 
-local function remove_suffix_overlap(text, suffix)
-  local maximum = math.min(#text, #suffix)
-  for length = maximum, 1, -1 do
-    if text:sub(#text - length + 1) == suffix:sub(1, length) then
-      return text:sub(1, #text - length)
-    end
-  end
-
-  local compact_text = text:gsub("%s", "")
-  local compact_suffix = suffix:gsub("%s", "")
-  maximum = math.min(#compact_text, #compact_suffix)
-  for length = maximum, 1, -1 do
-    local overlap = compact_suffix:sub(1, length)
-    local safe_fuzzy_overlap = length >= 3 or overlap:match("^%p+$") ~= nil
-    if safe_fuzzy_overlap and compact_text:sub(#compact_text - length + 1) == overlap then
-      local seen = 0
-      local start = #text + 1
-
-      for index = #text, 1, -1 do
-        if not text:sub(index, index):match("%s") then
-          seen = seen + 1
-        end
-
-        if seen == length then
-          start = index
-          break
-        end
-      end
-
-      local first = text:sub(start, start)
-      local preceding = start > 1 and text:sub(start - 1, start - 1) or ""
-      local inside_identifier = first:match("[%w_]") and preceding:match("[%w_]")
-      if not inside_identifier then
-        return text:sub(1, start - 1):gsub("[ \t]+$", "")
-      end
-    end
-  end
-
-  return text
-end
-
-local function strip_code_fence(text)
-  local _, opening_end = text:find("^[ \t]*```[^\n]*\n")
-  if not opening_end then
-    return text
-  end
-
-  return text:sub(opening_end + 1):gsub("\n[ \t]*```[ \t]*$", "")
-end
-
 ---Normalize and validate provider completion text.
 ---@param text string
 ---@param suffix string
 ---@param limits? table
 ---@return string?
 function M.sanitize(text, suffix, limits)
-  if type(text) ~= "string" then
+  return output.sanitize(text, suffix, limits)
+end
+
+local function current_change()
+  local bufnr = vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
     return nil
   end
-
-  text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
-  text = strip_code_fence(text)
-  text = remove_suffix_overlap(text, suffix or "")
-  limits = limits or {
-    max_bytes = 16 * 1024,
-    max_lines = 100,
+  return {
+    bufnr = bufnr,
+    changedtick = vim.api.nvim_buf_get_changedtick(bufnr),
   }
-  text = limit_lines(text, limits.max_lines)
-  text = take_head_utf8(text, limits.max_bytes)
+end
 
-  if not text:find("%S") then
-    return nil
-  end
-
-  if suffix and suffix:sub(1, #text) == text then
-    return nil
-  end
-
-  return text
+local function is_same_change(left, right)
+  return left and right and left.bufnr == right.bufnr and left.changedtick == right.changedtick
 end
 
 local function finish_request(request_id, captured, response)
@@ -194,7 +103,10 @@ local function finish_request(request_id, captured, response)
     return
   end
 
-  local text = M.sanitize(response.text, captured.suffix, runtime_config.completion.preview)
+  local sanitize_options = vim.tbl_extend("force", runtime_config.completion.preview, {
+    trim_trailing_blank_lines = runtime_config.completion.trim_trailing_blank_lines,
+  })
+  local text = M.sanitize(response.text, captured.suffix, sanitize_options)
   if not text then
     return
   end
@@ -356,10 +268,41 @@ function M._on_text_changed()
     return false
   end
 
+  local change = current_change()
+  if accepting or is_same_change(accepted_change, change) then
+    accepted_change = nil
+    return false
+  end
+
+  if is_same_change(handled_change, change) then
+    handled_change = nil
+    return true
+  end
+  handled_change = nil
+  accepted_change = nil
+
+  if vim.fn.pumvisible() == 1 then
+    stop_timer()
+    cancel_request()
+    dependencies.render.clear()
+    return false
+  end
+
+  if
+    runtime_config.completion.preserve_matching_prefix and dependencies.render.has_suggestion()
+  then
+    local consumption = dependencies.render.consume_matching_prefix()
+    if consumption == "consumed" or consumption == "complete" or consumption == "unchanged" then
+      stop_timer()
+      cancel_request()
+      return true
+    end
+  end
+
   cancel_request()
   dependencies.render.clear()
 
-  if not runtime_config.completion.auto_trigger or vim.fn.pumvisible() == 1 then
+  if not runtime_config.completion.auto_trigger then
     stop_timer()
     return false
   end
@@ -369,6 +312,23 @@ end
 
 ---Handle insert-mode cursor movement without starting work.
 function M._on_cursor_moved()
+  if
+    runtime_config
+    and runtime_config.completion.preserve_matching_prefix
+    and dependencies.render.has_suggestion()
+  then
+    local consumption = dependencies.render.consume_matching_prefix()
+    if consumption == "consumed" or consumption == "complete" then
+      handled_change = current_change()
+      stop_timer()
+      cancel_request()
+      return
+    end
+    if consumption == "unchanged" then
+      return
+    end
+  end
+
   if dependencies.render.has_suggestion() and not dependencies.render.is_current() then
     dependencies.render.clear()
   end
@@ -381,7 +341,7 @@ end
 local function register_autocmds()
   augroup = vim.api.nvim_create_augroup("FIMLoomCompletion", { clear = true })
 
-  vim.api.nvim_create_autocmd("TextChangedI", {
+  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
     group = augroup,
     callback = function()
       M._on_text_changed()
@@ -421,7 +381,7 @@ function M.setup(config, injected)
     render = (injected and injected.render) or render_module,
   }
   runtime_config = vim.deepcopy(config)
-  dependencies.render.setup()
+  dependencies.render.setup(runtime_config)
   register_autocmds()
   register_mappings(runtime_config)
 end
@@ -444,12 +404,25 @@ end
 function M.accept()
   stop_timer()
   cancel_request()
-  return dependencies.render.accept()
+  local suggestion = dependencies.render.get()
+  accepting = true
+  local accepted = dependencies.render.accept()
+  accepting = false
+  if accepted and suggestion and vim.api.nvim_buf_is_valid(suggestion.bufnr) then
+    accepted_change = {
+      bufnr = suggestion.bufnr,
+      changedtick = vim.api.nvim_buf_get_changedtick(suggestion.bufnr),
+    }
+  end
+  return accepted
 end
 
 ---Dismiss timers, requests, and the active suggestion.
 ---@return boolean dismissed
 function M.dismiss()
+  handled_change = nil
+  accepted_change = nil
+  accepting = false
   local dismissed = stop_timer()
   dismissed = cancel_request() or dismissed
   dismissed = dependencies.render.clear() or dismissed
@@ -467,6 +440,9 @@ function M.shutdown()
   end
 
   runtime_config = nil
+  handled_change = nil
+  accepted_change = nil
+  accepting = false
   dependencies = default_dependencies
 end
 

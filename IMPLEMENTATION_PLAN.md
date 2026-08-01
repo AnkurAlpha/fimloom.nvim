@@ -145,7 +145,8 @@ that every model produces equal-quality completions.
 ### Normal completion flow
 
 1. The user enters Insert mode and types.
-2. A `TextChangedI` event schedules a debounced completion.
+2. A `TextChangedI`/`TextChangedP` event first attempts verified matching-prefix
+   consumption, then schedules a debounced completion only when needed.
 3. Any previous timer and obsolete request are cancelled.
 4. FIMLoom captures bounded prefix and suffix context.
 5. The selected provider builds its request payload.
@@ -209,6 +210,8 @@ through `opts` directly.
       mode = "fim",
       auto_trigger = true,
       debounce_ms = 180,
+      trim_trailing_blank_lines = true,
+      preserve_matching_prefix = true,
       context = {
         max_prefix_bytes = 12000,
         max_suffix_bytes = 4000,
@@ -309,6 +312,7 @@ fimloom.nvim/
 │       ├── commands.lua
 │       ├── completion.lua
 │       ├── context.lua
+│       ├── output.lua
 │       ├── render.lua
 │       ├── transport.lua
 │       ├── process.lua
@@ -344,9 +348,10 @@ fimloom.nvim/
 | `config.lua` | Defaults, merge, validation, and immutable resolved config |
 | `state.lua` | Runtime state and ownership records |
 | `commands.lua` | `:FIMLoom` registration and subcommand completion |
-| `completion.lua` | Debounce, request lifecycle, stale checks, and acceptance |
+| `completion.lua` | Debounce, request lifecycle, stale checks, prefix-consumption orchestration, and acceptance |
 | `context.lua` | Safe prefix/suffix extraction and buffer metadata |
-| `render.lua` | Extmark creation, update, multiline display, and cleanup |
+| `output.lua` | Completion normalization, overlap removal, bounds, and trailing-blank-line policy |
+| `render.lua` | Extmarks, highlight setup, verified prefix consumption, multiline display, and cleanup |
 | `transport.lua` | Async `curl`, JSON encoding, cancellation, and timeouts |
 | `process.lua` | Health probing, server start, ownership, logs, and shutdown |
 | `log.lua` | Bounded diagnostic log with configurable verbosity |
@@ -475,10 +480,13 @@ Rendering will use a dedicated Neovim namespace and buffer extmarks.
 
 - The first line will use inline virtual text at the cursor.
 - Additional lines will use virtual lines or related extmark capabilities.
-- A default `FimLoomSuggestion` highlight will link to `Comment`.
+- A dedicated `FIMLoomSuggestion` highlight uses a neutral GUI/terminal grey,
+  supports direct attributes or linking, respects existing definitions, and is
+  restored after colorscheme changes only when absent.
 - Only one active suggestion will exist per Neovim instance in the MVP.
-- Typing, cursor movement away from the anchor, buffer changes, InsertLeave,
-  disable, and errors will clear the suggestion.
+- Exact insertions at the anchor consume the visible prefix and re-anchor the
+  remaining ghost text. Mismatch, deletion, cursor movement away from the
+  anchor, buffer changes, InsertLeave, disable, and errors clear it.
 - Accepting inserts real buffer text as one undo-friendly edit.
 - The renderer will never modify the buffer merely to preview a suggestion.
 
@@ -487,6 +495,8 @@ Response cleanup will:
 - normalize line endings;
 - remove accidental Markdown code fences in fallback modes;
 - remove text already duplicated by the suffix;
+- remove trailing whitespace-only lines when configured while preserving
+  internal blank lines;
 - enforce configured character/line limits;
 - preserve intentional indentation;
 - reject empty or whitespace-only results.

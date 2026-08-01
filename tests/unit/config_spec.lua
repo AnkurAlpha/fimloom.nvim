@@ -8,6 +8,10 @@ return function(t)
     t.assert_equal(first.provider, "ollama")
     t.assert_equal(first.endpoint, "http://127.0.0.1:11434")
     t.assert_equal(first.completion.mode, "fim")
+    t.assert_equal(first.completion.trim_trailing_blank_lines, true)
+    t.assert_equal(first.completion.preserve_matching_prefix, true)
+    t.assert_equal(first.ui.suggestion.fg, "#808080")
+    t.assert_equal(first.ui.suggestion.ctermfg, 244)
     t.assert_equal(first.server.auto_start, false)
     t.assert_equal(first.log.level, "warn")
     t.assert_equal(first.log.file, false)
@@ -152,6 +156,37 @@ return function(t)
     t.assert_error(function()
       config.resolve({ completion = { preview = { max_lines = 0 } } })
     end, "completion.preview.max_lines must be between")
+  end)
+
+  t.test("completion interaction and suggestion highlight options are validated", function()
+    local resolved = config.resolve({
+      completion = {
+        trim_trailing_blank_lines = false,
+        preserve_matching_prefix = false,
+      },
+      ui = {
+        suggestion = {
+          fg = "#707070",
+          ctermfg = 242,
+          italic = true,
+        },
+        suggestion_hl = "Comment",
+      },
+    })
+    t.assert_equal(resolved.completion.trim_trailing_blank_lines, false)
+    t.assert_equal(resolved.completion.preserve_matching_prefix, false)
+    t.assert_equal(resolved.ui.suggestion.fg, "#707070")
+    t.assert_equal(resolved.ui.suggestion_hl, "Comment")
+
+    t.assert_error(function()
+      config.resolve({ completion = { preserve_matching_prefix = "yes" } })
+    end, "completion.preserve_matching_prefix must be a boolean")
+    t.assert_error(function()
+      config.resolve({ ui = { suggestion = { ctermfg = 300 } } })
+    end, "ui.suggestion.ctermfg must be between")
+    t.assert_error(function()
+      config.resolve({ ui = { suggestion_hl = "" } })
+    end, "ui.suggestion_hl must be a non-empty string")
   end)
 
   t.test("nested configuration sections must remain tables", function()

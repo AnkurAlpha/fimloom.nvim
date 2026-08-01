@@ -7,6 +7,29 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-01
+
+### Added
+
+- Matching-prefix consumption for visible inline suggestions, including
+  character-by-character typing, multi-character insertion, newlines, and
+  indentation, with strict editor-state validation and no duplicate acceptance.
+- `completion.preserve_matching_prefix`, enabled by default.
+- Configurable `FIMLoomSuggestion` colors through `ui.suggestion`, optional
+  highlight linking through `ui.suggestion_hl`, and colorscheme-safe restoration.
+
+### Fixed
+
+- Restore configured suggestion highlight links after a colorscheme explicitly
+  clears `FIMLoomSuggestion`, while continuing to preserve user and colorscheme
+  definitions.
+- Remove trailing whitespace-only output lines before both rendering and
+  acceptance through the default-enabled `completion.trim_trailing_blank_lines`.
+- Preserve internal blank lines and indentation while sanitizing multiline
+  completions.
+- Avoid replacement inference while a matching suggestion prefix is being
+  consumed; restart normal debounced inference after divergence.
+
 ## [0.1.1] - 2026-07-19
 
 ### Added
@@ -71,6 +94,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   loss.
 - Ownership is not coordinated across multiple Neovim processes.
 
-[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AnkurAlpha/fimloom.nvim/releases/tag/v0.1.0

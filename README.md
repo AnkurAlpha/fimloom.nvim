@@ -19,6 +19,8 @@ automatic model download is required.
 - Debounced, asynchronous completion through `curl` and `vim.system()`.
 - UTF-8-safe, byte-bounded prefix and suffix context.
 - Single-line and multiline extmark previews that do not modify the buffer.
+- Matching typed prefixes progressively consume ghost text instead of discarding it.
+- Trailing blank-line cleanup and a dedicated configurable grey suggestion highlight.
 - Cancellation and stale-response rejection whenever editing state changes.
 - Codeium-style `<Tab>` acceptance with conflict-aware dismiss and manual mappings.
 - Optional argv-only server startup with readiness polling.
@@ -28,7 +30,8 @@ automatic model download is required.
 
 ## How it works
 
-1. An Insert-mode change starts or resets a short debounce timer.
+1. An Insert-mode change first consumes a matching visible suggestion prefix;
+   otherwise it starts or resets a short debounce timer.
 2. FIMLoom cancels older work and captures bounded text around the cursor.
 3. The selected provider converts that context into a native FIM request.
 4. `curl` performs the request asynchronously.
@@ -305,6 +308,8 @@ require("fimloom").setup({
     mode = "fim",
     auto_trigger = true,
     debounce_ms = 180,
+    trim_trailing_blank_lines = true,
+    preserve_matching_prefix = true,
     context = {
       max_prefix_bytes = 12000,
       max_suffix_bytes = 4000,
@@ -321,6 +326,15 @@ require("fimloom").setup({
       max_bytes = 16 * 1024,
       max_lines = 100,
     },
+  },
+
+  ui = {
+    suggestion = {
+      fg = "#808080",
+      ctermfg = 244,
+      italic = false,
+    },
+    suggestion_hl = nil,
   },
 
   transport = {
@@ -365,6 +379,8 @@ require("fimloom").setup({
 | `completion.mode` | Only `"fim"` is supported in `v0.1.0`. |
 | `completion.auto_trigger` | Schedule completion after Insert-mode text changes. |
 | `completion.debounce_ms` | Delay after typing before a request starts; `0` disables the delay. |
+| `completion.trim_trailing_blank_lines` | Remove every trailing whitespace-only output line before rendering and acceptance. Enabled by default. |
+| `completion.preserve_matching_prefix` | Consume exact inserted prefixes from visible ghost text instead of requesting again. Enabled by default. |
 | `completion.context.max_prefix_bytes` | Maximum UTF-8-safe bytes captured before the cursor. |
 | `completion.context.max_suffix_bytes` | Maximum UTF-8-safe bytes captured after the cursor. |
 | `completion.context.filetypes.allow` | If non-empty, only these exact Neovim filetypes are eligible. |
@@ -373,6 +389,10 @@ require("fimloom").setup({
 | `completion.generation.temperature` | Sampling temperature from `0` to `2`. |
 | `completion.preview.max_bytes` | Maximum UTF-8-safe completion bytes displayed. |
 | `completion.preview.max_lines` | Maximum completion lines displayed. |
+| `ui.suggestion.fg` | GUI foreground for the dedicated `FIMLoomSuggestion` group when no group already exists. |
+| `ui.suggestion.ctermfg` | Terminal-color fallback for `FIMLoomSuggestion`. |
+| `ui.suggestion.italic` | Whether the plugin-provided suggestion highlight is italic. |
+| `ui.suggestion_hl` | Optional highlight group to link `FIMLoomSuggestion` to; when set, this takes precedence over `ui.suggestion`. |
 | `transport.connect_timeout_ms` | `curl` connection timeout. |
 | `transport.request_timeout_ms` | Whole-request timeout. |
 | `transport.max_response_bytes` | Maximum accepted HTTP response size. |
@@ -394,6 +414,63 @@ require("fimloom").setup({
 Configuration is deep-copied and validated during `setup()`. User-owned tables
 are not mutated. A dynamic `server.command` receives a defensive copy of the
 resolved configuration and is validated when invoked.
+
+### Suggestion cleanup and matching-prefix typing
+
+With `trim_trailing_blank_lines = true`, FIMLoom normalizes line endings and
+removes all trailing lines containing only spaces or tabs, including the empty
+line represented by a final newline. It does not trim the final content line or
+alter blank lines inside the completion, so code indentation, strings,
+comments, and Markdown layout remain intact. The sanitized text is stored once,
+and the renderer and accept action use that same value.
+
+With `preserve_matching_prefix = true`, an insertion is consumed only when it
+is a byte-exact prefix of the visible suggestion and the buffer change is a
+single verified insertion at the suggestion anchor. Single characters,
+multi-character paste, UTF-8 text, newlines, and indentation are supported.
+Backspace, cursor movement, undo, buffer changes, popup-menu edits, or any
+mismatch clear the old suggestion; normal debounced completion then resumes
+when appropriate. Typing the whole suggestion clears it without inserting a
+duplicate.
+
+### Suggestion highlight
+
+Ghost text always renders with `FIMLoomSuggestion`. By default the group uses a
+neutral `#808080` foreground, terminal color `244`, no background, and no
+italic styling. To choose another grey in configuration:
+
+```lua
+ui = {
+  suggestion = {
+    fg = "#707070",
+    ctermfg = 242,
+    italic = true,
+  },
+}
+```
+
+To follow an existing colorscheme group instead:
+
+```lua
+ui = {
+  suggestion_hl = "Comment",
+}
+```
+
+Precedence is: an already defined manual `FIMLoomSuggestion` group wins;
+otherwise `ui.suggestion_hl` wins over `ui.suggestion`; otherwise the neutral
+default is used. FIMLoom checks whether the group is empty before applying its
+definition, so it does not replace an explicit user or colorscheme definition.
+A `ColorScheme` autocmd restores the configured/default definition only if the
+group was cleared. A manual override can therefore be placed before or after
+setup:
+
+```lua
+vim.api.nvim_set_hl(0, "FIMLoomSuggestion", {
+  fg = "#707070",
+  italic = true,
+})
+```
 
 ### Filetype filtering
 
@@ -545,7 +622,7 @@ Start with:
 | No automatic suggestion | Confirm `auto_trigger`, buffer suitability, filetype filters, Insert mode, and that the popup menu is closed. |
 | Manual key does nothing | Your terminal may not encode `<M-\>`; choose another `keymaps.manual`. |
 | `<Tab>` does not accept | Run `:verbose imap <Tab>` and confirm it says `FIMLoom: accept inline suggestion`. If another plugin owns it, make FIMLoom load later or configure another accept key. |
-| Suggestion disappears | Typing, moving the cursor, changing buffers, or leaving Insert mode intentionally invalidates stale work. |
+| Suggestion disappears while typing | Exact prefix typing is preserved by default. A mismatch, backspace, cursor move, popup-menu edit, undo, external edit, buffer change, or Insert-mode exit intentionally invalidates it. |
 | Remote endpoint warning | Use `127.0.0.1`, `localhost`, or `[::1]` if context must remain on the local machine. |
 
 Native probes useful outside Neovim:

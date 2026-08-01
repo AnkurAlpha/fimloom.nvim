@@ -73,6 +73,10 @@ current stable release. It also checks StyLua formatting and Vim help tags.
 - Do not download models or require Ollama/llama.cpp in automated tests.
 - Verify cancellation, idempotent cleanup, stale-response rejection, and
   ownership boundaries whenever those paths are affected.
+- Keep provider-output cleanup in `output.lua`, request/event orchestration in
+  `completion.lua`, and extmark/suggestion-anchor state in `render.lua`.
+- Prefix-consumption tests must cover exact insertion, divergence, multiline
+  text, cursor/buffer invalidation, and duplicate-free acceptance.
 - Ensure tests clean up buffers, timers, jobs, commands, autocmds, and files.
 
 The lightweight harness lives in `tests/helpers.lua`; suites are registered in

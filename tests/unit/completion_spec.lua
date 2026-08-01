@@ -86,7 +86,7 @@ return function(t)
 
       t.assert_equal(completion.trigger({ manual = true }), true)
       t.assert_equal(#fake.calls, 1)
-      fake.calls[1].callback({ ok = true, text = "42" })
+      fake.calls[1].callback({ ok = true, text = "42\n\n  \n" })
       wait_for(render.has_suggestion)
 
       t.assert_equal(render.get().text, "42")
@@ -163,6 +163,122 @@ return function(t)
     end)
   end)
 
+  t.test("matching prefix typing keeps the remaining suggestion without a new request", function()
+    with_runtime({
+      completion = {
+        debounce_ms = 10,
+      },
+    }, { "" }, function(buffer, window, fake)
+      vim.api.nvim_win_set_cursor(window, { 1, 0 })
+      assert(completion.trigger({ manual = true }))
+      fake.calls[1].callback({ ok = true, text = 'print("Hello")' })
+      wait_for(render.has_suggestion)
+
+      vim.api.nvim_buf_set_text(buffer, 0, 0, 0, 0, { "pri" })
+      vim.api.nvim_win_set_cursor(window, { 1, 3 })
+      t.assert_equal(completion._on_text_changed(), true)
+      t.assert_equal(render.get().text, 'nt("Hello")')
+      vim.wait(30, function()
+        return false
+      end, 5)
+      t.assert_equal(#fake.calls, 1)
+      t.assert_equal(completion.status().debounce_pending, false)
+    end)
+  end)
+
+  t.test("matching then mismatching text clears and automatically requests replacement", function()
+    with_runtime({
+      completion = {
+        debounce_ms = 10,
+      },
+    }, { "" }, function(buffer, window, fake)
+      assert(completion.trigger({ manual = true }))
+      fake.calls[1].callback({ ok = true, text = "print" })
+      wait_for(render.has_suggestion)
+
+      vim.api.nvim_buf_set_text(buffer, 0, 0, 0, 0, { "pri" })
+      vim.api.nvim_win_set_cursor(window, { 1, 3 })
+      assert(completion._on_text_changed())
+      t.assert_equal(render.get().text, "nt")
+
+      vim.api.nvim_buf_set_text(buffer, 0, 3, 0, 3, { "x" })
+      vim.api.nvim_win_set_cursor(window, { 1, 4 })
+      assert(completion._on_text_changed())
+      t.assert_equal(render.has_suggestion(), false)
+      wait_for(function()
+        return #fake.calls == 2
+      end, "divergence did not start a replacement request")
+    end)
+  end)
+
+  t.test("typing the full suggestion manually clears it without duplicate acceptance", function()
+    with_runtime({}, { "value = " }, function(buffer, window, fake)
+      local column = #"value = "
+      vim.api.nvim_win_set_cursor(window, { 1, column })
+      assert(completion.trigger({ manual = true }))
+      fake.calls[1].callback({ ok = true, text = "42" })
+      wait_for(render.has_suggestion)
+
+      vim.api.nvim_buf_set_text(buffer, 0, column, 0, column, { "42" })
+      vim.api.nvim_win_set_cursor(window, { 1, #"value = 42" })
+      assert(completion._on_text_changed())
+      t.assert_equal(render.has_suggestion(), false)
+      t.assert_equal(completion.accept(), false)
+      t.assert_equal(vim.api.nvim_buf_get_lines(buffer, 0, -1, false)[1], "value = 42")
+    end)
+  end)
+
+  t.test("cursor-first event ordering consumes once and suppresses duplicate work", function()
+    with_runtime({}, { "" }, function(buffer, window, fake)
+      assert(completion.trigger({ manual = true }))
+      fake.calls[1].callback({ ok = true, text = "hello" })
+      wait_for(render.has_suggestion)
+
+      vim.api.nvim_buf_set_text(buffer, 0, 0, 0, 0, { "he" })
+      vim.api.nvim_win_set_cursor(window, { 1, 2 })
+      completion._on_cursor_moved()
+      t.assert_equal(render.get().text, "llo")
+      t.assert_equal(completion._on_text_changed(), true)
+      t.assert_equal(render.get().text, "llo")
+      t.assert_equal(#fake.calls, 1)
+    end)
+  end)
+
+  t.test("prefix preservation can be disabled", function()
+    with_runtime({
+      completion = {
+        auto_trigger = false,
+        preserve_matching_prefix = false,
+      },
+    }, { "" }, function(buffer, window, fake)
+      assert(completion.trigger({ manual = true }))
+      fake.calls[1].callback({ ok = true, text = "hello" })
+      wait_for(render.has_suggestion)
+
+      vim.api.nvim_buf_set_text(buffer, 0, 0, 0, 0, { "h" })
+      vim.api.nvim_win_set_cursor(window, { 1, 1 })
+      t.assert_equal(completion._on_text_changed(), false)
+      t.assert_equal(render.has_suggestion(), false)
+      t.assert_equal(#fake.calls, 1)
+    end)
+  end)
+
+  t.test("InsertLeave and BufLeave clear suggestions and pending requests", function()
+    with_runtime({}, { "value = " }, function(_, window, fake)
+      vim.api.nvim_win_set_cursor(window, { 1, #"value = " })
+      assert(completion.trigger({ manual = true }))
+      vim.api.nvim_exec_autocmds("InsertLeave", {})
+      t.assert_equal(fake.calls[1].handle.cancelled, true)
+      t.assert_equal(completion.status().active_request_id, nil)
+
+      assert(completion.trigger({ manual = true }))
+      fake.calls[2].callback({ ok = true, text = "42" })
+      wait_for(render.has_suggestion)
+      vim.api.nvim_exec_autocmds("BufLeave", {})
+      t.assert_equal(render.has_suggestion(), false)
+    end)
+  end)
+
   t.test("completion cleanup normalizes fences and removes suffix overlap", function()
     t.assert_equal(completion.sanitize("```lua\r\nvalue\r\nend\r\n```", ""), "value\nend")
     t.assert_equal(completion.sanitize("valueend", "end\nnext"), "value")
@@ -172,6 +288,7 @@ return function(t)
     t.assert_equal(completion.sanitize("weekend", "\nend"), "weekend")
     t.assert_equal(completion.sanitize("end", "end\nnext"), nil)
     t.assert_equal(completion.sanitize("  \n", ""), nil)
+    t.assert_equal(completion.sanitize("value\n\n  \n", ""), "value")
     t.assert_equal(
       completion.sanitize("one\ntwo\nthree", "", {
         max_bytes = 100,
