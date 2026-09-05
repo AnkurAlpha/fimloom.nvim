@@ -408,8 +408,8 @@ TRANSPORT ~
 SERVER ~
 
 `server.auto_start`
-    Start `server.command` only after an unsuccessful initial probe. A command
-    is required when this option is true.
+    Start `server.command` only when the initial health probe gets no HTTP
+    response. A command is required when this option is true.
 
 `server.auto_stop`
     Stop an owned process during normal `VimLeavePre`. When false, the job is
@@ -513,17 +513,21 @@ mapping when needed.
 Setup performs an asynchronous provider health probe.
 
 - A healthy pre-existing endpoint becomes ready but remains unowned.
-- An unhealthy endpoint is reported when `auto_start` is false.
+- Any HTTP response from a pre-existing endpoint, including llama.cpp's
+  temporary HTTP 503 while loading a model, is waited on and remains unowned.
+- An unreachable endpoint is reported when `auto_start` is false.
 - With `auto_start` true, validated argv starts through Neovim job control.
-- The owned process is polled until ready or until the hard deadline.
+- Only an unreachable endpoint can trigger startup; the owned process is polled
+  until ready or until the hard deadline.
 - Early exit or timeout cancels polling and stops the owned job.
 - `:FIMLoom stop` never stops an external/unowned server.
 - `auto_stop` true stops an owned process on normal `VimLeavePre`.
 - `auto_stop` false starts it detached and leaves it running on exit.
 
 Disabling or reconfiguring FIMLoom tears down work owned by the current
-instance. Cleanup cannot be guaranteed after `SIGKILL`, a Neovim crash, kernel
-failure, or power loss.
+instance. A responding external endpoint is never stopped, even when its
+health probe has not reached ready yet. Cleanup cannot be guaranteed after
+`SIGKILL`, a Neovim crash, kernel failure, or power loss.
 
 `v0.1.x` has no lease shared across multiple Neovim processes. Run a shared
 server externally with `auto_start = false`, or use the detached llama.cpp

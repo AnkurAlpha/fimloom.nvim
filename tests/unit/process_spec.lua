@@ -115,6 +115,82 @@ return function(t)
     end)
   end)
 
+  t.test("a responding but loading server is reused without spawning a duplicate", function()
+    with_runtime(function()
+      local starts = 0
+      local stops = 0
+      local provider = health_sequence({
+        {
+          ok = false,
+          status = 503,
+          error = { kind = "http", message = "HTTP request failed with status 503" },
+        },
+        { ok = true, ready = true, status = 200 },
+      })
+      local settings = resolved({
+        startup_timeout_ms = 1000,
+        startup_poll_interval_ms = 10,
+      })
+      state.configure(settings)
+      process.setup(settings, {
+        providers = provider,
+        jobstart = function()
+          starts = starts + 1
+          error("a responding endpoint must not be started again")
+        end,
+        jobstop = function()
+          stops = stops + 1
+          return 1
+        end,
+      })
+
+      local status = wait_for_status("ready")
+      t.assert_equal(status.owned, false)
+      t.assert_equal(status.job_id, nil)
+      t.assert_equal(starts, 0)
+      t.assert_equal(stops, 0)
+      t.assert_equal(process.stop(), false)
+      t.assert_equal(stops, 0)
+    end)
+  end)
+
+  t.test("a loading external server times out without being stopped", function()
+    with_runtime(function()
+      local starts = 0
+      local stops = 0
+      local provider = health_sequence({
+        {
+          ok = false,
+          status = 503,
+          error = { kind = "http", message = "HTTP request failed with status 503" },
+        },
+      })
+      local settings = resolved({
+        startup_timeout_ms = 40,
+        startup_poll_interval_ms = 10,
+      })
+      state.configure(settings)
+      process.setup(settings, {
+        providers = provider,
+        jobstart = function()
+          starts = starts + 1
+          error("a responding endpoint must not be started again")
+        end,
+        jobstop = function()
+          stops = stops + 1
+          return 1
+        end,
+      })
+
+      local status = wait_for_status("failed")
+      t.assert_equal(status.owned, false)
+      t.assert_equal(status.job_id, nil)
+      t.assert_equal(status.error.kind, "startup_timeout")
+      t.assert_equal(starts, 0)
+      t.assert_equal(stops, 0)
+    end)
+  end)
+
   t.test("configured argv starts, captures bounded output, and stops once", function()
     with_runtime(function()
       local captured_command

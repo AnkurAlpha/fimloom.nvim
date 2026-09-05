@@ -529,13 +529,18 @@ transport can be considered after the behavior is stable.
 
 1. Probe the configured provider health endpoint.
 2. If healthy, mark the server as available and **not owned**.
-3. If unhealthy and `auto_start = false`, report a helpful connection error.
-4. If unhealthy and `auto_start = true`, resolve the configured argv command.
-5. Start the process directly with `jobstart()` and retain its job identifier.
-6. Mark ownership only after process creation succeeds.
-7. Poll the health endpoint with backoff until ready, the process exits, or the
+3. If the endpoint returns any HTTP status, treat it as an existing
+   **unowned** service and poll it until ready or until the startup timeout
+   expires. This covers llama.cpp's temporary HTTP 503 while loading a model.
+4. If the endpoint is unreachable and `auto_start = false`, report a helpful
+   connection error.
+5. If the endpoint is unreachable and `auto_start = true`, resolve the
+   configured argv command.
+6. Start the process directly with `jobstart()` and retain its job identifier.
+7. Mark ownership only after process creation succeeds.
+8. Poll the health endpoint with backoff until ready, the process exits, or the
    startup timeout expires.
-8. Capture a bounded tail of stdout/stderr for diagnostics.
+9. Capture a bounded tail of stdout/stderr for diagnostics.
 
 ### Shutdown algorithm
 

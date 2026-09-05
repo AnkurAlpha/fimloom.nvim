@@ -115,6 +115,18 @@ local function error_message(result)
   return "the configured provider endpoint is not ready"
 end
 
+local function endpoint_responded(result)
+  if type(result) ~= "table" then
+    return false
+  end
+
+  if result.ok == true then
+    return true
+  end
+
+  return type(result.status) == "number" and result.status >= 100 and result.status <= 599
+end
+
 local function validate_resolved_command(command)
   local is_list = vim.islist or vim.tbl_islist
   if type(command) ~= "table" or not is_list(command) or #command == 0 then
@@ -188,6 +200,29 @@ local function schedule_poll(token)
     probe_health(token, false)
   end, runtime_config.server.startup_poll_interval_ms)
   poll_timer = timer
+end
+
+local function schedule_deadline(token)
+  if generation ~= token or deadline_timer then
+    return
+  end
+
+  local timer
+  timer = dependencies.defer_fn(function()
+    if generation ~= token or deadline_timer ~= timer then
+      return
+    end
+
+    deadline_timer = nil
+    fail_owned(
+      "startup_timeout",
+      string.format(
+        "server did not become ready within %d ms",
+        runtime_config.server.startup_timeout_ms
+      )
+    )
+  end, runtime_config.server.startup_timeout_ms)
+  deadline_timer = timer
 end
 
 local function mark_ready(token)
@@ -283,22 +318,7 @@ local function start_job(token)
     pid = pid,
   })
 
-  local timer
-  timer = dependencies.defer_fn(function()
-    if generation ~= token or deadline_timer ~= timer then
-      return
-    end
-
-    deadline_timer = nil
-    fail_owned(
-      "startup_timeout",
-      string.format(
-        "server did not become ready within %d ms",
-        runtime_config.server.startup_timeout_ms
-      )
-    )
-  end, runtime_config.server.startup_timeout_ms)
-  deadline_timer = timer
+  schedule_deadline(token)
 
   probe_health(token, false)
 end
@@ -314,6 +334,20 @@ local function handle_health(token, initial, result)
   end
 
   if initial then
+    if endpoint_responded(result) then
+      -- An HTTP response proves that something already owns the endpoint.
+      -- llama.cpp returns 503 while its model is loading; never launch a
+      -- second server merely because that existing service is not ready yet.
+      schedule_deadline(token)
+      schedule_poll(token)
+      log.write("debug", "server_external_wait", {
+        provider = runtime_config.provider,
+        endpoint = runtime_config.endpoint,
+        status = result.status,
+      })
+      return
+    end
+
     if runtime_config.server.auto_start then
       start_job(token)
     else

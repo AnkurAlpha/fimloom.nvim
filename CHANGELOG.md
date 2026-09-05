@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-05
+
+### Fixed
+
+- Reuse an already-responding inference endpoint while it is still loading,
+  including llama.cpp's HTTP 503 health response, instead of launching a
+  duplicate server on the same port. The external process remains unowned and
+  is never stopped by FIMLoom.
+
 ## [0.2.0] - 2026-08-01
 
 ### Added
@@ -94,7 +103,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   loss.
 - Ownership is not coordinated across multiple Neovim processes.
 
-[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/AnkurAlpha/fimloom.nvim/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AnkurAlpha/fimloom.nvim/releases/tag/v0.1.0

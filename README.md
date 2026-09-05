@@ -171,8 +171,12 @@ opts = {
 ```
 
 FIMLoom probes `GET /api/tags` first. If the configured service is already
-healthy, it is treated as external and will not be stopped. Otherwise, the
-configured command is started and polled until ready.
+healthy, it is treated as external and will not be stopped. Any HTTP response
+also proves that the endpoint is already occupied; this includes llama.cpp's
+temporary `503` response while its model is loading. FIMLoom waits for that
+existing service to become ready instead of starting a second process. Only an
+unreachable endpoint can trigger the configured command, which is then polled
+until ready.
 
 Ollama completion requests set `think = false` so reasoning text cannot become
 inline code. The model must still expose fill-in-the-middle support through an
@@ -230,6 +234,9 @@ The endpoint and `--port` must match. Mellum requires `--spm-infill` because it
 uses suffix-prefix-middle token order. Other models may use the default
 prefix-suffix-middle order, so do not copy that flag without checking their
 model cards. Adjust GPU-layer and context arguments for the available hardware.
+While llama.cpp is loading its model, `/health` may return HTTP 503; FIMLoom
+recognizes that as an existing server and waits without launching another
+process on the same port.
 
 ### Multiple Neovim sessions and idle GPU release
 
@@ -396,7 +403,7 @@ require("fimloom").setup({
 | `transport.connect_timeout_ms` | `curl` connection timeout. |
 | `transport.request_timeout_ms` | Whole-request timeout. |
 | `transport.max_response_bytes` | Maximum accepted HTTP response size. |
-| `server.auto_start` | Start `server.command` only when the initial health probe fails. Requires a command when true. |
+| `server.auto_start` | Start `server.command` only when the initial health probe gets no HTTP response. Requires a command when true. |
 | `server.auto_stop` | Stop an owned server on normal `VimLeavePre`; false starts the job detached. |
 | `server.command` | Non-empty argv list, a function returning one, or `nil`. Shell strings are rejected. |
 | `server.startup_timeout_ms` | Hard readiness deadline after an owned process starts. |
@@ -550,11 +557,11 @@ public status reports server output byte counts, not captured output contents.
 
 ## Server ownership and shutdown
 
-FIMLoom distinguishes a healthy pre-existing service from a process it starts:
+FIMLoom distinguishes a pre-existing service from a process it starts:
 
 | Situation | Ownership | Shutdown behavior |
 | --- | --- | --- |
-| Endpoint is healthy before startup | External/unowned | Never stopped by FIMLoom. |
+| Endpoint responds before startup, including a temporary HTTP error | External/unowned | Never stopped by FIMLoom. |
 | Endpoint is unhealthy and FIMLoom starts `server.command` | Owned | Stopped on normal exit when `auto_stop = true`. |
 | `auto_stop = false` | Owned while Neovim runs; process is detached | Left running on exit. |
 | Startup fails or readiness times out | Owned work is cancelled | Started job is stopped and failure is recorded. |
