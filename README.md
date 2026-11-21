@@ -69,7 +69,7 @@ context size, and hardware determine latency and quality.
   main = "fimloom",
   opts = {
     provider = "ollama",
-    model = "mellum:4b-fimloom",
+    model = "qwen2.5-coder:7b-fimloom",
   },
 }
 ```
@@ -87,7 +87,7 @@ trigger lets `:FIMLoom ...` load the plugin before the first Insert-mode entry.
   main = "fimloom",
   opts = {
     provider = "ollama",
-    model = "mellum:4b-fimloom",
+    model = "qwen2.5-coder:7b-fimloom",
   },
 }
 ```
@@ -95,43 +95,68 @@ trigger lets `:FIMLoom ...` load the plugin before the first Insert-mode entry.
 When the plugin is lazy-loaded, run `:FIMLoom status` or enter Insert mode
 before using `:checkhealth fimloom`.
 
-## Ollama quick start
+## Recommended model
 
-FIMLoom never downloads models automatically. The examples below use
-[JetBrains Mellum 4B base](https://huggingface.co/JetBrains/Mellum-4b-base), a
-small model trained specifically for code completion and evaluated on
-fill-in-the-middle benchmarks. Download the official Q8 GGUF once:
+The recommended model is `qwen2.5-coder-7b-q4_k_m.gguf`, a Q4_K_M GGUF
+quantization of the [Qwen2.5-Coder-7B base model](https://huggingface.co/Qwen/Qwen2.5-Coder-7B).
+The examples below use the [Nerve4 community conversion](https://huggingface.co/nerve4/Qwen2.5-Coder-7B-GGUF),
+which supports fill-in-the-middle code completion. It is the base model, not
+the instruction-tuned model.
+
+FIMLoom never downloads models automatically. Download this GGUF once for use
+with either provider:
 
 ```sh
 model_dir="$HOME/.local/share/fimloom/models"
-model="$model_dir/mellum-4b-base.Q8_0.gguf"
+model="$model_dir/qwen2.5-coder-7b-q4_k_m.gguf"
+expected_sha="c1096c17c7f49aff6f82ec4b1ff36b87a52893a4a37e2cf644019e192930dcab"
 
 mkdir -p "$model_dir"
-curl --fail --location --continue-at - \
+if curl --fail --location --continue-at - \
   --output "$model.part" \
-  https://huggingface.co/JetBrains/Mellum-4b-base-gguf/resolve/main/mellum-4b-base.Q8_0.gguf
-
-echo "f8a8ae8f8b02cd992716e8849fe0424184bc7a26c2b829131ed558567307c5b2  $model.part" \
-  | sha256sum --check \
-  && mv "$model.part" "$model"
+  https://huggingface.co/nerve4/Qwen2.5-Coder-7B-GGUF/resolve/main/qwen2.5-coder-7b-q4_k_m.gguf; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$expected_sha" "$model.part" | sha256sum -c - && mv "$model.part" "$model"
+  else
+    printf '%s  %s\n' "$expected_sha" "$model.part" | shasum -a 256 -c - && mv "$model.part" "$model"
+  fi
+fi
 ```
 
-The file is about 4.27 GB. Its published SHA-256 is checked before the partial
-download is promoted. To import that local GGUF into Ollama, substitute its
-absolute path into the Modelfile template shipped with FIMLoom:
+The file is about 4.36 GiB. Its published SHA-256 is checked before the partial
+download is promoted. If verification fails, remove the `.part` file and retry.
+If you already have the GGUF, place it at this path or adjust the examples.
+
+## Ollama quick start
+
+After downloading the recommended GGUF above, start Ollama if it is not already
+running (for example, run `ollama serve` in another terminal). Create an Ollama
+Modelfile beside the GGUF. The template supplies Qwen's fill-in-the-middle
+tokens in the correct order:
 
 ```sh
-model="$(realpath "$HOME/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf")"
-sed "s|@MODEL_PATH@|$model|" \
-  /path/to/fimloom.nvim/examples/mellum-4b-fim.Modelfile \
-  > /tmp/FIMLoom.Mellum.Modelfile
+model_dir="$HOME/.local/share/fimloom/models"
+cat > "$model_dir/Qwen2.5-Coder-7B-FIM.Modelfile" <<'EOF'
+FROM ./qwen2.5-coder-7b-q4_k_m.gguf
 
-ollama create mellum:4b-fimloom -f /tmp/FIMLoom.Mellum.Modelfile
-rm -f /tmp/FIMLoom.Mellum.Modelfile
+TEMPLATE """{{ if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>{{ else }}{{ .Prompt }}{{ end }}"""
+
+PARAMETER num_ctx 8192
+PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<|fim_prefix|>"
+PARAMETER stop "<|fim_suffix|>"
+PARAMETER stop "<|fim_middle|>"
+PARAMETER stop "<|fim_pad|>"
+PARAMETER stop "<|repo_name|>"
+PARAMETER stop "<|file_sep|>"
+PARAMETER stop "<|im_end|>"
+EOF
+
+ollama create qwen2.5-coder:7b-fimloom -f "$model_dir/Qwen2.5-Coder-7B-FIM.Modelfile"
 ```
 
-Replace `/path/to/fimloom.nvim` with the plugin checkout. The model name
-`mellum:4b-fimloom` is local and can be changed as long as `opts.model` matches.
+The model name `qwen2.5-coder:7b-fimloom` is local and can be changed as long
+as `opts.model` matches.
 Ollama stores an imported model layer in its own model store; the original GGUF
 can also be used directly by llama.cpp.
 
@@ -146,7 +171,7 @@ Then configure FIMLoom to use an existing Ollama service:
   opts = {
     provider = "ollama",
     endpoint = "http://127.0.0.1:11434",
-    model = "mellum:4b-fimloom",
+    model = "qwen2.5-coder:7b-fimloom",
     server = {
       auto_start = false,
     },
@@ -161,7 +186,7 @@ FIMLoom can start it:
 opts = {
   provider = "ollama",
   endpoint = "http://127.0.0.1:11434",
-  model = "mellum:4b-fimloom",
+  model = "qwen2.5-coder:7b-fimloom",
   server = {
     auto_start = true,
     auto_stop = true,
@@ -183,14 +208,14 @@ inline code. The model must still expose fill-in-the-middle support through an
 Ollama template containing `{{ .Suffix }}`.
 
 Adding FIM tokens or a suffix-aware template does not train a general model to
-perform infilling. Choose a base model whose documentation explicitly reports
-FIM training or benchmarks. The Mellum manifest only exposes the FIM behavior
-already present in its weights.
+perform infilling. Choose a model whose documentation explicitly reports FIM
+support; the Qwen template exposes the FIM behavior already present in its
+weights.
 
 ## llama.cpp quick start
 
-Build or install `llama-server`, then obtain a FIM-capable GGUF model yourself.
-The configuration below reuses the Mellum file from the Ollama quick start:
+Build or install `llama-server`, then download the recommended GGUF above. The
+configuration below uses that file directly:
 
 ```lua
 {
@@ -202,7 +227,7 @@ The configuration below reuses the Mellum file from the Ollama quick start:
     provider = "llamacpp",
     endpoint = "http://127.0.0.1:8012",
     model = vim.fn.expand(
-      "~/.local/share/fimloom/models/mellum-4b-base.Q8_0.gguf"
+      "~/.local/share/fimloom/models/qwen2.5-coder-7b-q4_k_m.gguf"
     ),
     server = {
       auto_start = true,
@@ -221,7 +246,6 @@ The configuration below reuses the Mellum file from the Ollama quick start:
           "8192",
           "--n-gpu-layers",
           "999",
-          "--spm-infill",
           "--no-warmup",
         }
       end,
@@ -230,10 +254,10 @@ The configuration below reuses the Mellum file from the Ollama quick start:
 }
 ```
 
-The endpoint and `--port` must match. Mellum requires `--spm-infill` because it
-uses suffix-prefix-middle token order. Other models may use the default
-prefix-suffix-middle order, so do not copy that flag without checking their
-model cards. Adjust GPU-layer and context arguments for the available hardware.
+The endpoint and `--port` must match. Qwen2.5-Coder uses the default
+prefix-suffix-middle infill order, so do not add `--spm-infill` for this model.
+Other models may require a different order; check their model cards. Adjust
+GPU-layer and context arguments for the available hardware.
 While llama.cpp is loading its model, `/health` may return HTTP 503; FIMLoom
 recognizes that as an existing server and waits without launching another
 process on the same port.
@@ -266,7 +290,6 @@ server = {
       "--port", "8012",
       "--ctx-size", "8192",
       "--n-gpu-layers", "999",
-      "--spm-infill",
       "--no-warmup",
       "--sleep-idle-seconds", "300",
     }
@@ -620,10 +643,10 @@ Start with:
 | `:FIMLoom` is unknown | With lazy.nvim, enter Insert mode or run `:Lazy load fimloom.nvim`; include `cmd = "FIMLoom"` in the spec. |
 | `curl` health error | Install `curl` and confirm it is in the environment used to start Neovim. |
 | Endpoint is unreachable | Confirm the host/port, start the server, and test its native health endpoint. |
-| Ollama model missing | Run `ollama list`, then explicitly `ollama pull <model>` and match `opts.model`. |
-| Ollama says the model does not support insert | Use a genuine FIM model and a suffix-aware manifest; see the Mellum Ollama quick start. |
+| Ollama model missing | Run `ollama list`, recreate the local model using the Ollama quick start if needed, and match `opts.model`. |
+| Ollama says the model does not support insert | Use a genuine FIM model and a suffix-aware manifest; see the Ollama quick start. |
 | llama.cpp returns 404 | Use `llama-server`'s native base URL and ensure its `/health` and `/infill` endpoints are enabled. |
-| Mellum produces poor llama.cpp infills | Start `llama-server` with `--spm-infill`; Mellum uses suffix-prefix-middle order. |
+| llama.cpp produces poor infills | Check the model's FIM token order. Qwen uses the default; some models, such as Mellum, require `--spm-infill`. |
 | Startup executable missing | Correct the first item in `server.command` or install the executable. |
 | Startup times out | Increase `server.startup_timeout_ms` and inspect server diagnostics outside FIMLoom. |
 | No automatic suggestion | Confirm `auto_trigger`, buffer suitability, filetype filters, Insert mode, and that the popup menu is closed. |
